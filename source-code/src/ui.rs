@@ -1,100 +1,134 @@
-import os
-import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, GdkPixbuf
+// src/ui.rs
+use adw::prelude::*;
+use adw::{HeaderBar, ToolbarView};
+use gtk::prelude::*;
+use gtk::{Align, Box as GtkBox, Button, FlowBox, Image, Label, Orientation, PolicyType, ScrolledWindow, Separator};
+use glib::clone;
+use std::cell::RefCell;
+use std::path::Path;
+use std::rc::Rc;
+use gdk_pixbuf::Pixbuf;
+use crate::actions::Actions;
 
-def build_ui(window):
-    # HeaderBar dla profesjonalnego wyglądu
-    header_bar = Adw.HeaderBar()
-    header_bar.set_show_end_title_buttons(True)
+pub fn build_ui(window: &adw::ApplicationWindow, actions: Rc<RefCell<Actions>>) {
+    // HeaderBar
+    let header_bar = HeaderBar::builder()
+        .show_end_title_buttons(true)
+        .build();
 
-    # Box dla title widget z logo i tytułem
-    title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+    // Title widget with logo and title
+    let title_box = GtkBox::builder()
+        .orientation(Orientation::Horizontal)
+        .spacing(10)
+        .build();
 
-    # Logo (mniejsze dla headera)
-    logo_path = "/usr/share/HackerOS/ICONS/Plymouth-Icons/watermark.png"
-    if os.path.exists(logo_path):
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(logo_path, 32, 32)
-        logo_image = Gtk.Image.new_from_pixbuf(pixbuf)
-    else:
-        logo_image = Gtk.Image()  # Puste jeśli nie znaleziono
-    title_box.append(logo_image)
+    // Logo
+    let logo_path = "/usr/share/HackerOS/ICONS/Plymouth-Icons/watermark.png";
+    let logo_image = if Path::new(logo_path).exists() {
+        let pixbuf = Pixbuf::from_file_at_scale(logo_path, 32, 32, true).ok();
+        Image::from_pixbuf(pixbuf.as_ref())
+    } else {
+        Image::new()
+    };
+    title_box.append(&logo_image);
 
-    # Tytuł (mniejszy font dla headera)
-    title_label = Gtk.Label(label="Witaj w HackerOS!")
-    title_label.set_markup("<span font='Arial bold 20'>Witaj w HackerOS!</span>")
-    title_box.append(title_label)
+    // Title label
+    let title_label = Label::builder()
+        .label("Witaj w HackerOS!")
+        .use_markup(true)
+        .build();
+    title_label.set_markup("<span font='Arial bold 20'>Witaj w HackerOS!</span>");
+    title_box.append(&title_label);
 
-    header_bar.set_title_widget(title_box)
+    header_bar.set_title_widget(Some(&title_box));
 
-    # Content box
-    content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-    content_box.set_margin_top(20)
-    content_box.set_margin_start(20)
-    content_box.set_margin_end(20)
-    content_box.set_margin_bottom(20)
+    // Content box
+    let content_box = GtkBox::builder()
+        .orientation(Orientation::Vertical)
+        .spacing(15)
+        .margin_top(20)
+        .margin_start(20)
+        .margin_end(20)
+        .margin_bottom(20)
+        .build();
 
-    # Podtytuł (używany też do feedbacku)
-    window.subtitle_label = Gtk.Label(label="Twój system do Gier i Etycznego Hakowania")
-    window.subtitle_label.set_markup("<span font='Arial 18'>Twój system do Gier i Etycznego Hakowania</span>")
-    window.subtitle_label.set_halign(Gtk.Align.CENTER)
-    window.subtitle_label.get_style_context().add_class("subtitle")
-    content_box.append(window.subtitle_label)
+    // Subtitle
+    let subtitle_label = Label::builder()
+        .label("Twój system do Gier i Etycznego Hakowania")
+        .use_markup(true)
+        .halign(Align::Center)
+        .build();
+    subtitle_label.set_markup("<span font='Arial 18'>Twój system do Gier i Etycznego Hakowania</span>");
+    subtitle_label.style_context().add_class("subtitle");
+    content_box.append(&subtitle_label);
 
-    # Separator
-    separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-    separator.set_margin_start(10)
-    separator.set_margin_end(10)
-    content_box.append(separator)
+    actions.borrow_mut().subtitle_label = Some(subtitle_label.clone());
 
-    # ScrolledWindow dla przycisków, aby było scrollowalne jeśli potrzeba
-    scrolled_window = Gtk.ScrolledWindow()
-    scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-    scrolled_window.set_hexpand(True)
-    scrolled_window.set_vexpand(True)
-    content_box.append(scrolled_window)
+    // Separator
+    let separator = Separator::builder()
+        .orientation(Orientation::Horizontal)
+        .margin_start(10)
+        .margin_end(10)
+        .build();
+    content_box.append(&separator);
 
-    # Layout przycisków - FlowBox dla dynamicznego układu
-    flow_box = Gtk.FlowBox()
-    flow_box.set_column_spacing(15)
-    flow_box.set_row_spacing(15)
-    flow_box.set_margin_start(10)
-    flow_box.set_margin_end(10)
-    flow_box.set_margin_bottom(20)
-    flow_box.set_homogeneous(True)
-    flow_box.set_min_children_per_line(2)
-    flow_box.set_max_children_per_line(3)
-    scrolled_window.set_child(flow_box)
+    // ScrolledWindow for buttons
+    let scrolled_window = ScrolledWindow::builder()
+        .hscrollbar_policy(PolicyType::Never)
+        .vscrollbar_policy(PolicyType::Automatic)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    content_box.append(&scrolled_window);
 
-    # Pozostałe przyciski (usunięto wskazane)
-    buttons = [
-        ("Otwórz stronę HackerOS", window.actions.open_website),
-        ("Otwórz X", window.actions.open_x),
-        ("Otwórz sklep z aplikacjami", window.actions.open_software),
-        ("Changelog", window.actions.open_changelog),
-        ("Informacje o systemie", window.actions.open_system_info),
-        ("Zgłoś błąd", window.actions.report_bug),
-        ("Forum dyskusyjne", window.actions.open_forum),
-        ("Zaktualizuj system", window.actions.update_system),
-        ("Uruchom HackerOS Games", lambda: window.actions.run_command_with_feedback("/usr/share/HackerOS/Scripts/Bin/HackerOS-Games.sh")),
-        ("Hacker Launcher", lambda: window.actions.run_command_with_feedback("/usr/share/HackerOS/Scripts/HackerOS-Apps/Hacker_Launcher"))
-    ]
-    for text, action in buttons:
-        btn = Gtk.Button(label=text)
-        btn.connect("clicked", lambda widget, act=action: act())
-        flow_box.append(btn)
+    // FlowBox for buttons
+    let flow_box = FlowBox::builder()
+        .column_spacing(15)
+        .row_spacing(15)
+        .margin_start(10)
+        .margin_end(10)
+        .margin_bottom(20)
+        .homogeneous(true)
+        .min_children_per_line(2)
+        .max_children_per_line(3)
+        .build();
+    scrolled_window.set_child(Some(&flow_box));
 
-    # Footer
-    footer_label = Gtk.Label(label="© 2025 HackerOS Team | All rights reserved")
-    footer_label.set_halign(Gtk.Align.CENTER)
-    footer_label.get_style_context().add_class("footer")
-    content_box.append(footer_label)
+    // Buttons
+    let buttons = vec![
+        ("Otwórz stronę HackerOS", clone!(@strong actions => move || actions.borrow().open_website())),
+        ("Otwórz X", clone!(@strong actions => move || actions.borrow().open_x())),
+        ("Otwórz sklep z aplikacjami", clone!(@strong actions => move || actions.borrow().open_software())),
+        ("Changelog", clone!(@strong actions => move || actions.borrow().open_changelog())),
+        ("Informacje o systemie", clone!(@strong actions => move || actions.borrow().open_system_info())),
+        ("Zgłoś błąd", clone!(@strong actions => move || actions.borrow().report_bug())),
+        ("Forum dyskusyjne", clone!(@strong actions => move || actions.borrow().open_forum())),
+        ("Zaktualizuj system", clone!(@strong actions => move || actions.borrow().update_system())),
+        ("Uruchom HackerOS Games", clone!(@strong actions => move || actions.borrow().run_command_with_feedback("/usr/share/HackerOS/Scripts/Bin/HackerOS-Games.sh"))),
+        ("Hacker Launcher", clone!(@strong actions => move || actions.borrow().run_command_with_feedback("/usr/share/HackerOS/Scripts/HackerOS-Apps/Hacker_Launcher"))),
+    ];
 
-    # ToolbarView do integracji headera i contentu
-    toolbar_view = Adw.ToolbarView()
-    toolbar_view.add_top_bar(header_bar)
-    toolbar_view.set_content(content_box)
+    for (label, action) in buttons {
+        let button = Button::builder()
+            .label(label)
+            .build();
+        button.connect_clicked(move |_| action());
+        flow_box.append(&button);
+    }
 
-    # Ustaw content okna
-    window.set_content(toolbar_view)
+    // Footer
+    let footer_label = Label::builder()
+        .label("© 2025 HackerOS Team | All rights reserved")
+        .halign(Align::Center)
+        .build();
+    footer_label.style_context().add_class("footer");
+    content_box.append(&footer_label);
+
+    // ToolbarView to integrate header and content
+    let toolbar_view = ToolbarView::new();
+    toolbar_view.add_top_bar(&header_bar);
+    toolbar_view.set_content(Some(&content_box));
+
+    // Set window content
+    window.set_content(Some(&toolbar_view));
+}
