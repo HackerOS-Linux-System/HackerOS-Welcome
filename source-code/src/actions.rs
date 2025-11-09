@@ -1,54 +1,93 @@
-import os
-import webbrowser
-import subprocess
+// src/actions.rs
+use gtk::prelude::*;
+use gtk::Label;
+use std::process::Command;
+use webbrowser;
 
-class Actions:
-    def __init__(self, window):
-        self.window = window
+pub struct Actions {
+    pub subtitle_label: Option<Label>,
+}
 
-    def run_command_with_feedback(self, cmd):
-        """Uruchamianie komend z feedbackiem."""
-        full_cmd = f"bash -c '{cmd}'"
-        result = os.system(f"pkexec {full_cmd}")
-        cmd_name = cmd.split('/')[-1] if '/' in cmd else cmd
-        if result == 0:
-            self.window.subtitle_label.set_label(f"Uruchomiono: {cmd_name}.")
-        else:
-            self.window.subtitle_label.set_label(f"Błąd podczas uruchamiania: {cmd_name}.")
+impl Actions {
+    pub fn new() -> Self {
+        Actions {
+            subtitle_label: None,
+        }
+    }
 
-    def open_website(self):
-        webbrowser.open("https://hackeros-linux-system.github.io/HackerOS-Website/Home-page.html")
-        self.window.subtitle_label.set_label("Otworzono stronę HackerOS.")
+    fn update_subtitle(&self, text: &str) {
+        if let Some(label) = &self.subtitle_label {
+            label.set_label(text);
+        }
+    }
 
-    def open_x(self):
-        webbrowser.open("https://x.com/hackeros_linux")
-        self.window.subtitle_label.set_label("Otworzono X.")
+    pub fn run_command_with_feedback(&self, cmd: &str) {
+        let full_cmd = format!("bash -c '{}'", cmd);
+        let result = Command::new("pkexec")
+            .arg(&full_cmd)
+            .status();
 
-    def open_software(self):
-        result = os.system("gnome-software &")
-        self.window.subtitle_label.set_label("Uruchomiono Sklep z aplikacjami.")
+        let cmd_name = cmd.split('/').last().unwrap_or(cmd);
+        match result {
+            Ok(status) if status.success() => self.update_subtitle(&format!("Uruchomiono: {}.", cmd_name)),
+            _ => self.update_subtitle(&format!("Błąd podczas uruchamiania: {}.", cmd_name)),
+        }
+    }
 
-    def open_changelog(self):
-        webbrowser.open("https://hackeros-linux-system.github.io/HackerOS-Website/releases.html")
-        self.window.subtitle_label.set_label("Otworzono Changelog.")
+    pub fn open_website(&self) {
+        if webbrowser::open("https://hackeros-linux-system.github.io/HackerOS-Website/Home-page.html").is_ok() {
+            self.update_subtitle("Otworzono stronę HackerOS.");
+        }
+    }
 
-    def open_system_info(self):
-        webbrowser.open("https://hackeros-linux-system.github.io/HackerOS-Website/about-hackeros.html")
-        self.window.subtitle_label.set_label("Otworzono Informacje o systemie.")
+    pub fn open_x(&self) {
+        if webbrowser::open("https://x.com/hackeros_linux").is_ok() {
+            self.update_subtitle("Otworzono X.");
+        }
+    }
 
-    def report_bug(self):
-        webbrowser.open("https://github.com/HackerOS-Linux-System/HackerOS-Website/issues")
-        self.window.subtitle_label.set_label("Otworzono Zgłoś błąd.")
+    pub fn open_software(&self) {
+        if Command::new("gnome-software").spawn().is_ok() {
+            self.update_subtitle("Uruchomiono Sklep z aplikacjami.");
+        } else {
+            self.update_subtitle("Błąd podczas uruchamiania Sklep z aplikacjami.");
+        }
+    }
 
-    def open_forum(self):
-        webbrowser.open("https://github.com/HackerOS-Linux-System/HackerOS-Website/discussions")
-        self.window.subtitle_label.set_label("Otworzono Forum dyskusyjne.")
+    pub fn open_changelog(&self) {
+        if webbrowser::open("https://hackeros-linux-system.github.io/HackerOS-Website/releases.html").is_ok() {
+            self.update_subtitle("Otworzono Changelog.");
+        }
+    }
 
-    def update_system(self):
-        # Otwiera terminal z komendą hacker update, potem pyta o zamknięcie
-        terminal_cmd = 'alacritty -e bash -c "hacker update; read -p \'Chcesz zamknąć terminal? (t/n) \' answer; if [ \"$answer\" = \'t\' ]; then exit; else echo \'Terminal pozostanie otwarty.\'; read; fi"'
-        result = os.system(terminal_cmd)
-        if result == 0:
-            self.window.subtitle_label.set_label("Rozpoczęto aktualizację systemu w terminalu.")
-        else:
-            self.window.subtitle_label.set_label("Błąd podczas uruchamiania aktualizacji systemu.")
+    pub fn open_system_info(&self) {
+        if webbrowser::open("https://hackeros-linux-system.github.io/HackerOS-Website/about-hackeros.html").is_ok() {
+            self.update_subtitle("Otworzono Informacje o systemie.");
+        }
+    }
+
+    pub fn report_bug(&self) {
+        if webbrowser::open("https://github.com/HackerOS-Linux-System/HackerOS-Website/issues").is_ok() {
+            self.update_subtitle("Otworzono Zgłoś błąd.");
+        }
+    }
+
+    pub fn open_forum(&self) {
+        if webbrowser::open("https://github.com/HackerOS-Linux-System/HackerOS-Website/discussions").is_ok() {
+            self.update_subtitle("Otworzono Forum dyskusyjne.");
+        }
+    }
+
+    pub fn update_system(&self) {
+        let terminal_cmd = "alacritty -e bash -c \"hacker update; read -p 'Chcesz zamknąć terminal? (t/n) ' answer; if [ \"$answer\" = 't' ]; then exit; else echo 'Terminal pozostanie otwarty.'; read; fi\"";
+        let result = Command::new("sh")
+            .arg("-c")
+            .arg(terminal_cmd)
+            .status();
+
+        match result {
+            Ok(status) if status.success() => self.update_subtitle("Rozpoczęto aktualizację systemu w terminalu."),
+            _ => self.update_subtitle("Błąd podczas uruchamiania aktualizacji systemu."),
+        }
+    }
+}
