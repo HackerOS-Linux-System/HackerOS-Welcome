@@ -1,1 +1,12 @@
+[package]
+name = "hackeros-welcome"
+version = "0.1.0"
+edition = "2021"
 
+[dependencies]
+adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
+gio = "0.19"
+glib = "0.19"
+gtk = { package = "gtk4", version = "0.9" }
+gdk-pixbuf = "0.19"
+webbrowser = "1.0"
