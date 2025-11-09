@@ -1,5 +1,3 @@
-// src/actions.rs
-use gtk::prelude::*;
 use gtk::Label;
 use std::process::Command;
 use webbrowser;
@@ -18,19 +16,6 @@ impl Actions {
     fn update_subtitle(&self, text: &str) {
         if let Some(label) = &self.subtitle_label {
             label.set_label(text);
-        }
-    }
-
-    pub fn run_command_with_feedback(&self, cmd: &str) {
-        let full_cmd = format!("bash -c '{}'", cmd);
-        let result = Command::new("pkexec")
-            .arg(&full_cmd)
-            .status();
-
-        let cmd_name = cmd.split('/').last().unwrap_or(cmd);
-        match result {
-            Ok(status) if status.success() => self.update_subtitle(&format!("Uruchomiono: {}.", cmd_name)),
-            _ => self.update_subtitle(&format!("Błąd podczas uruchamiania: {}.", cmd_name)),
         }
     }
 
@@ -81,10 +66,9 @@ impl Actions {
     pub fn update_system(&self) {
         let terminal_cmd = "alacritty -e bash -c \"hacker update; read -p 'Chcesz zamknąć terminal? (t/n) ' answer; if [ \"$answer\" = 't' ]; then exit; else echo 'Terminal pozostanie otwarty.'; read; fi\"";
         let result = Command::new("sh")
-            .arg("-c")
-            .arg(terminal_cmd)
-            .status();
-
+        .arg("-c")
+        .arg(terminal_cmd)
+        .status();
         match result {
             Ok(status) if status.success() => self.update_subtitle("Rozpoczęto aktualizację systemu w terminalu."),
             _ => self.update_subtitle("Błąd podczas uruchamiania aktualizacji systemu."),
