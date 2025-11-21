@@ -69,6 +69,7 @@ impl Actions {
         .arg("-c")
         .arg(terminal_cmd)
         .status();
+
         match result {
             Ok(status) if status.success() => self.update_subtitle("Rozpoczęto aktualizację systemu w terminalu."),
             _ => self.update_subtitle("Błąd podczas uruchamiania aktualizacji systemu."),
