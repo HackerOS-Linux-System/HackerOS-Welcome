@@ -26,9 +26,10 @@ fn main() {
         .title("HackerOS Welcome")
         .default_width(1000)
         .default_height(750)
+        .decorated(false)  // Use false for client-side decorations (CSD) with custom header bar
         .build();
 
-        // Load CSS
+        // Load CSS with improvements for prettier look
         let provider = CssProvider::new();
         provider.load_from_data("
         window {
@@ -36,6 +37,11 @@ fn main() {
         color: white;
         border-radius: 12px;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    }
+    headerbar {
+    background-color: #1E1E1E;
+    border-bottom: 1px solid #333;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
     label {
     color: white;
@@ -85,6 +91,9 @@ fn main() {
     background-color: #0A0A0A;
     border-top: 1px solid #333;
     }
+    image {
+    color: #FFFFFF;  /* For symbolic icons */
+    }
     ");
 
         gtk::style_context_add_provider_for_display(
@@ -95,6 +104,7 @@ fn main() {
 
         let actions = Rc::new(RefCell::new(Actions::new()));
         build_ui(&window, actions.clone());
+
         window.present();
     });
 
