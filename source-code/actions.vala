@@ -1,4 +1,3 @@
-// actions.vala
 public class Actions {
     public Gtk.Label? subtitle_label { get; set; }
     public weak Gtk.Window? parent_window { get; set; }
