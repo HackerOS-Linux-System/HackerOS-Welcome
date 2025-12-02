@@ -1,0 +1,14 @@
+// ninja
+// vala
+// meson
+! 1. Skonfiguruj projekt
+> meson setup build --buildtype=release
+
+! 2. Wejdź do folderu build
+> cd build
+
+! 3. Skompiluj
+> ninja
+
+! 4. (Opcjonalnie) zainstaluj systemowo
+> sudo ninja install   # zainstaluje do /usr/local/bin/hackeros-welcome
