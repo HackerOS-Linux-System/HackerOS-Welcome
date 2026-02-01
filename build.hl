@@ -11,4 +11,4 @@
 > ninja
 
 ! 4. (Opcjonalnie) zainstaluj systemowo
-> sudo ninja install   # zainstaluje do /usr/local/bin/hackeros-welcome
+> sudo ninja install   ! zainstaluje do /usr/local/bin/hackeros-welcome
