@@ -1,0 +1,3 @@
+*.desktop linguist-detectable=true
+*.desktop linguist-documentation=false
+*.desktop linguist-language=INI
