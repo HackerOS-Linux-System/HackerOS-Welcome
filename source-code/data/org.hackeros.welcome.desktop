@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=HackerOS Welcome
+Comment=HackerOS Welcome App.
+Exec=/usr/share/HackerOS/Scripts/HackerOS-Apps/HackerOS-Welcome
+Icon=/usr/share/HackerOS/ICONS/HackerOS.png
+Terminal=false
+Type=Application
+Categories=Utility;Application;
+StartupNotify=false
