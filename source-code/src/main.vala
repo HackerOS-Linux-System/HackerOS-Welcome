@@ -11,79 +11,226 @@ public class HackerOSWelcome : Adw.Application {
     protected override void activate() {
         var window = new Adw.ApplicationWindow(this) {
             title = "HackerOS Welcome",
-            default_width = 1000,
-            default_height = 750,
-            decorated = false // Use false for client-side decorations (CSD) with custom header bar
+            default_width = 1100,
+            default_height = 780,
+            decorated = true
         };
 
-        // Load CSS with improvements for prettier look
         var provider = new Gtk.CssProvider();
         provider.load_from_string("""
-        window {
-            background-color: #121212;
-            color: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+        /* ── Global ─────────────────────────────────────────────────────────── */
+        window, .window-frame {
+            background-color: #0d0d0f;
+            color: #e8e8ec;
         }
+
+        /* ── Header Bar ─────────────────────────────────────────────────────── */
         headerbar {
-            background-color: #1E1E1E;
-            border-bottom: 1px solid #333;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            background-color: #111115;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 1px 0 rgba(255,255,255,0.04);
+            min-height: 48px;
         }
-        label {
-            color: white;
-            text-shadow: 1px 1px 2px black;
+        headerbar .title {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: #e8e8ec;
         }
-        button {
-            background-color: #1E1E1E;
-            color: white;
-            border: 2px solid #555;
+
+        /* ── Sidebar (navigation) ───────────────────────────────────────────── */
+        .sidebar {
+            background-color: #111115;
+            border-right: 1px solid rgba(255,255,255,0.06);
+            padding: 12px 0;
+        }
+        .sidebar-item {
+            background: transparent;
+            border: none;
             border-radius: 8px;
-            padding: 12px 20px;
-            font-size: 16px;
-            font-weight: bold;
-            transition: all 0.3s ease;
+            color: #8888a0;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 10px 16px;
+            margin: 2px 8px;
+            transition: all 0.15s ease;
         }
-        button:hover {
-            background-color: #333;
-            border-color: #777;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        .sidebar-item:hover {
+            background-color: rgba(255,255,255,0.06);
+            color: #c8c8d8;
         }
-        button:active {
-            background-color: #444;
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        .sidebar-item.active {
+            background-color: rgba(255,255,255,0.08);
+            color: #e8e8ec;
+            border-left: 3px solid #aaaaaa;
+            border-radius: 0 8px 8px 0;
+            margin-left: 0;
+            padding-left: 21px;
         }
-        .title {
-            font-size: 32px;
-            font-weight: bold;
-            color: #FFFFFF;
+        .sidebar-section-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            color: #555566;
+            padding: 14px 16px 4px 16px;
         }
-        .subtitle {
-            font-size: 20px;
-            color: #CCCCCC;
+        .sidebar-separator {
+            background-color: rgba(255,255,255,0.05);
+            margin: 8px 12px;
         }
-        separator {
-            background-color: #555;
-            margin: 10px 0;
+
+        /* ── Main content area ──────────────────────────────────────────────── */
+        .content-area {
+            background-color: #0d0d0f;
         }
-        scrolledwindow {
-            background-color: #181818;
-            border-radius: 8px;
-            padding: 10px;
+
+        /* ── MOTD card ───────────────────────────────────────────────────────── */
+        .motd-card {
+            background: linear-gradient(135deg,
+                rgba(255,255,255,0.04) 0%,
+                rgba(255,255,255,0.02) 50%,
+                rgba(0,0,0,0) 100%);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
         }
-        .footer {
+        .motd-header {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            color: #aaaaaa;
+            margin-bottom: 8px;
+        }
+        .motd-text {
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 13px;
+            color: #a0a0b0;
+            line-height: 1.7;
+        }
+        .motd-tip-label {
+            font-size: 11px;
+            color: #555566;
+            font-style: italic;
+            margin-top: 6px;
+        }
+
+        /* ── Welcome hero area ───────────────────────────────────────────────── */
+        .hero-title {
+            font-size: 36px;
+            font-weight: 800;
+            color: #ffffff;
+            letter-spacing: -0.02em;
+        }
+        .hero-accent {
+            font-size: 36px;
+            font-weight: 800;
+            color: #cccccc;
+            letter-spacing: -0.02em;
+        }
+        .hero-subtitle {
+            font-size: 15px;
+            margin-top: 6px;
+            color: #888899;
+        }
+        .distro-badge {
+            background-color: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #aaaaaa;
+        }
+
+        /* ── Action button grid ─────────────────────────────────────────────── */
+        .action-card {
+            background-color: #16161c;
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 12px;
+            padding: 18px 16px;
+            transition: all 0.18s ease;
+        }
+        .action-card:hover {
+            background-color: #1e1e26;
+            border-color: rgba(255,255,255,0.18);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .action-card:active {
+            background-color: rgba(255,255,255,0.05);
+        }
+        .action-icon {
+            color: #bbbbbb;
+        }
+        .action-title {
             font-size: 14px;
-            color: #888888;
-            padding: 10px;
-            background-color: #0A0A0A;
-            border-top: 1px solid #333;
+            font-weight: 600;
+            color: #dddde8;
         }
-        image {
-            color: #FFFFFF; /* For symbolic icons */
+        .action-desc {
+            font-size: 12px;
+            color: #606078;
+            margin-top: 2px;
+        }
+
+        /* ── Section heading ─────────────────────────────────────────────────── */
+        .section-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            color: #555566;
+            margin-bottom: 10px;
+            margin-top: 4px;
+        }
+
+        /* ── Footer ─────────────────────────────────────────────────────────── */
+        .footer-label {
+            font-size: 12px;
+            color: #444455;
+        }
+
+        /* ── Status bar ─────────────────────────────────────────────────────── */
+        .status-bar {
+            background-color: #080810;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            padding: 6px 16px;
+        }
+        .status-text {
+            font-family: "JetBrains Mono", monospace;
+            font-size: 11px;
+            color: #aaaaaa;
+        }
+        .status-dot {
+            color: #888888;
+        }
+
+        /* ── Scrolled window ────────────────────────────────────────────────── */
+        scrolledwindow {
+            background-color: transparent;
+        }
+        scrolledwindow undershoot,
+        scrolledwindow overshoot {
+            background: none;
+        }
+
+        /* ── Separator ──────────────────────────────────────────────────────── */
+        separator {
+            background-color: rgba(255,255,255,0.05);
+        }
+
+        /* ── Label defaults ─────────────────────────────────────────────────── */
+        label {
+            color: #e8e8ec;
         }
         """);
 
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        // GTK 4.12+ uses Gtk.style_context_add_provider_for_display (non-deprecated)
+        // but for broad compatibility we keep the cast through the C function directly.
+        Gtk.StyleContext.add_provider_for_display (  // vala-disable-line deprecated
+            Gdk.Display.get_default(),
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        );
 
         var actions = new Actions();
         build_ui(window, actions);
