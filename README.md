@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![HackerOS Welcome](images/hackeros-welcome.png)
+![HackerOS Welcome](source-code/images/hackeros-welcome.png)
 
 **Aplikacja powitalna systemu HackerOS**
 
