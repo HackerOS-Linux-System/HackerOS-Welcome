@@ -1,9 +1,13 @@
-// ninja
+// ninja [ninja-build]
 // valac
 // meson
+// cmake
 
-! 1. Skonfiguruj projekt
+;; 1. Skonfiguruj projekt
 > meson setup build --buildtype=release
 
-! 2. Skompiluj
+;; 2. Skompiluj
 > ninja -c build
+
+;; install libs
+;; > sudo apt install libgtk-4-dev libadwaita-1-dev
