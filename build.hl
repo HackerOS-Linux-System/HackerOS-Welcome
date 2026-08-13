@@ -10,4 +10,4 @@
 > ninja -c build
 
 ;; install libs
-;; > sudo apt install libgtk-4-dev libadwaita-1-dev
+;; > sudo apt install libgtk-4-dev libadwaita-1-dev libsoup-3.0-dev
