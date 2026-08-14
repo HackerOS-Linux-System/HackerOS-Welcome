@@ -93,6 +93,25 @@ public class Actions : Object {
         );
     }
 
+    /** Otwiera stronę pobierania edycji HackerOS */
+    public void open_download() {
+        open_url(
+            "https://hackeros-linux-system.github.io/HackerOS-Website/download.html",
+            "Otworzono stronę pobierania.",
+            "Błąd podczas otwierania strony pobierania."
+        );
+    }
+
+    /**
+     * Otwiera dowolny odnośnik przy pomocy domyślnej przeglądarki systemowej.
+     * Używane przez sekcje "Pobieranie" i "Dokumentacja", których treść (a
+     * więc i adresy URL) jest pobierana dynamicznie z API strony HackerOS
+     * Website, a nie znana z góry w czasie kompilacji.
+     */
+    public void open_link(string url, string success_msg) {
+        open_url(url, success_msg, "Błąd podczas otwierania odnośnika.");
+    }
+
     /** Otwiera stronę GitHub projektu */
     public void open_github() {
         open_url(
