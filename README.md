@@ -7,7 +7,7 @@
 **Aplikacja powitalna systemu HackerOS**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/HackerOS-Linux-System)
+[![Version](https://img.shields.io/badge/version-0.7.0-green.svg)](https://github.com/HackerOS-Linux-System)
 [![GTK4](https://img.shields.io/badge/GTK-4-blue.svg)](https://gtk.org/)
 [![libadwaita](https://img.shields.io/badge/libadwaita-≥1.5-orange.svg)](https://gnome.pages.gitlab.gnome.org/libadwaita/)
 
