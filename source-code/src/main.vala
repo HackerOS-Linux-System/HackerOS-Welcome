@@ -173,6 +173,71 @@ public class HackerOSWelcome : Adw.Application {
             margin-top: 2px;
         }
 
+        /* ── Source chips (Pobieranie: SourceForge / Mega / Drive / ...) ─────── */
+        .chip-btn {
+            background-color: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #cccccc;
+            min-height: 0;
+        }
+        .chip-btn:hover {
+            background-color: rgba(255,255,255,0.12);
+            border-color: rgba(255,255,255,0.28);
+            color: #ffffff;
+        }
+        .chip-btn:disabled {
+            opacity: 0.35;
+        }
+
+        /* ── Documentation reader (Dokumentacja: lista kategorii) ────────────── */
+        .doc-list {
+            background-color: transparent;
+        }
+        .doc-list row {
+            border-radius: 6px;
+        }
+        .doc-list row:hover {
+            background-color: rgba(255,255,255,0.05);
+        }
+        .doc-list row:selected {
+            background-color: rgba(255,255,255,0.12);
+        }
+
+        /* ── Badge "nowość" na przycisku nawigacji (np. nowa wersja) ─────────── */
+        .nav-badge {
+            color: #ff5c5c;
+            font-size: 9px;
+            margin-left: 4px;
+        }
+
+        /* ── Wiersz polecenia z przyciskiem "kopiuj" w dokumentacji ──────────── */
+        .code-row {
+            background-color: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-top: 4px;
+        }
+        .code-text {
+            font-family: monospace;
+            font-size: 12px;
+            color: #9fe870;
+        }
+
+        /* ── Adnotacja o dostępnej nowej wersji na stronie Wydania ───────────── */
+        .update-note {
+            background-color: rgba(255, 200, 80, 0.10);
+            border: 1px solid rgba(255, 200, 80, 0.30);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: #ffcf6a;
+        }
+
         /* ── Section heading ─────────────────────────────────────────────────── */
         .section-title {
             font-size: 11px;
@@ -233,7 +298,9 @@ public class HackerOSWelcome : Adw.Application {
         );
 
         var actions = new Actions();
-        build_ui(window, actions);
+        var api = new HackerOSApi();
+        var settings = new AppSettings();
+        build_ui(window, actions, api, settings);
         window.present();
     }
 
