@@ -1,7 +1,7 @@
 [package]
 -> name        => hackeros-welcome
 -> version     => 0.9.0
--> description => HackerOS Welcome — aplikacja powitalna HackerOS, przepisana z Vala na H# (GTK4 przez bibliotekę gtk z bit)
+-> description => HackerOS Welcome — aplikacja powitalna HackerOS.
 -> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
 -> license     => GPL-3.0
 -> lang        => h#
