@@ -1,0 +1,44 @@
+mod util
+
+use "std -> fs" from "fs"
+
+pub fn dir() -> string is
+    let d: string = util::home() + "/.cache/HackerOS/hackeros-welcome"
+    util::mkdir_p(d)
+    return d
+end
+
+pub fn path_for(key: string) -> string is
+    return dir() + "/" + util::safe_name(key)
+end
+
+;; Zapisuje tresc pod kluczem (zwykle: sciezka zasobu). Bledy zapisu sa ignorowane —
+;; cache jest tylko usprawnieniem.
+pub fn save(key: string, content: string) is
+    fs::write(path_for(key), content)
+end
+
+pub fn has(key: string) -> bool is
+    return fs::is_file(path_for(key))
+end
+
+;; Zapamietana tresc albo "" gdy brak.
+pub fn load(key: string) -> string is
+    let p: string = path_for(key)
+    if !fs::is_file(p) is return "" end
+    return fs::read(p)
+end
+
+;; Kiedy zapisano (mtime pliku, unix); 0 gdy brak.
+pub fn saved_at(key: string) -> int is
+    let p: string = path_for(key)
+    if !fs::is_file(p) is return 0 end
+    return fs::modified_time(p)
+end
+
+;; Podkatalog (np. "gallery", "tmp"), tworzony w razie potrzeby.
+pub fn subdir(name: string) -> string is
+    let d: string = dir() + "/" + name
+    util::mkdir_p(d)
+    return d
+end
