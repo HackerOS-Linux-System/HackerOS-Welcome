@@ -1,0 +1,191 @@
+mod util
+mod cache
+mod api
+
+use "std -> fs" from "fs"
+use "std -> time" from "time"
+use "std -> process" from "proc"
+use "std -> strings" from "strings"
+
+pub fn user_agent() -> string is return "HackerOS-Welcome/" + util::app_version() end
+
+;; Czy narzedzie `curl` jest w PATH? (siec w aplikacji = curl w tle; nie jest to
+;; biblioteka, wiec nie ma go w [system-dependencies] — bit sprawdza tam pkg-config.)
+pub fn curl_available() -> bool is
+    return proc::which("curl") != ""
+end
+
+struct Job is
+    ;; plik, do ktorego zapisywany jest wynik (stdout polecenia albo pobierany plik)
+    pub out: string
+    ;; plik z kodem wyjscia — pojawia sie dopiero, gdy proces sie skonczyl
+    pub rc:  string
+    ;; adres / opis zadania (do komunikatow)
+    pub url: string
+    ;; klucz cache ("" gdy brak)
+    pub key: string
+end
+
+;; Wynik zadania sieciowego po `finish_fetch`.
+struct Fetched is
+    pub ok:     bool
+    pub text:   string
+    ;; true gdy tresc pochodzi z cache offline (brak sieci)
+    pub cached: bool
+    ;; kiedy pobrano / zapisano w cache (unix)
+    pub at:     int
+    pub url:    string
+end
+
+fn tmp_base(key: string) -> string is
+    return cache::subdir("tmp") + "/" + util::safe_name(key) + "-" + to_string(time::now_ms())
+end
+
+;; ── Zadania ─────────────────────────────────────────────────────────────────
+
+;; Pobiera zasob strony (sciezka wzgledna albo pelny URL) w tle. Doszywa `_ts`
+;; i naglowki no-cache, zeby ominac posredniczace cache (jak w wersji Vala).
+pub fn start_get(path_or_url: string) -> Job is
+    let base: string = api::resolve_url(path_or_url)
+    let mut sep: string = "?"
+    if base.contains("?") is sep = "&" end
+    let url: string = base + sep + "_ts=" + to_string(time::now_ms())
+    let b: string = tmp_base(path_or_url)
+    let out: string = b + ".body"
+    let rc: string = b + ".rc"
+    let cmd: string = "curl -fsSL --max-time 15 -A " + util::shq(user_agent()) +
+        " --connect-timeout 8 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' -o " +
+        util::shq(out) + " " + util::shq(url) + "; echo $? > " + util::shq(rc)
+    proc::spawn(cmd)
+    return Job { out: out, rc: rc, url: base, key: path_or_url }
+end
+
+;; Dowolne polecenie powloki w tle; stdout trafia do `job.out`.
+pub fn start_cmd(name: string, cmd: string) -> Job is
+    let b: string = tmp_base(name)
+    let out: string = b + ".out"
+    let rc: string = b + ".rc"
+    proc::spawn("( " + cmd + " ) > " + util::shq(out) + " 2>/dev/null; echo $? > " + util::shq(rc))
+    return Job { out: out, rc: rc, url: name, key: "" }
+end
+
+;; Same naglowki odpowiedzi (HEAD z podazaniem za przekierowaniami) — do rozpoznania
+;; pliku bezposredniego vs strony posredniczacej bez pobierania tresci.
+pub fn start_head(url: string) -> Job is
+    let b: string = tmp_base("head-" + url)
+    let out: string = b + ".hdr"
+    let rc: string = b + ".rc"
+    proc::spawn("curl -sIL --max-time 15 -A " + util::shq(user_agent()) + " -o " + util::shq(out) + " " +
+                util::shq(url) + "; echo $? > " + util::shq(rc))
+    return Job { out: out, rc: rc, url: url, key: "" }
+end
+
+;; Pobieranie pliku na dysk. Zapis idzie do `dest.part`, po sukcesie `mv` na `dest`.
+;; `job.out` to plik `.part` (jego rozmiar = postep). Anulowanie: `cancel_download`.
+pub fn start_download(url: string, dest: string) -> Job is
+    let part: string = dest + ".part"
+    let rc: string = dest + ".rc"
+    util::remove_quiet(rc)
+    let cmd: string = "curl -fL --retry 2 --connect-timeout 20 -A " + util::shq(user_agent()) + " -o " + util::shq(part) + " " + util::shq(url) +
+        "; r=$?; if [ $r -eq 0 ]; then mv -f " + util::shq(part) + " " + util::shq(dest) + "; fi; echo $r > " + util::shq(rc)
+    proc::spawn(cmd)
+    return Job { out: part, rc: rc, url: url, key: "" }
+end
+
+;; Przerywa pobieranie (zabija curl po nazwie pliku .part) i zostawia znacznik .cancel.
+pub fn cancel_download(job: Job) is
+    fs::write(job.out + ".cancel", "1")
+    ;; wzorzec = sciezka .part (z ucieczka znakow regex); pkill trafia tez w otaczajaca
+    ;; powloke, ktora normalnie zapisalaby kod wyjscia
+    proc::run("pkill -f -- " + util::shq(util::regex_escape(job.out)))
+    ;; powloka mogla zginac razem z curl — wtedy `rc` nigdy by nie powstal, a modalne
+    ;; okno pobierania wisialoby w nieskonczonosc. Zapisujemy kod sami (130 = przerwano).
+    if !finished(job) is
+        fs::write(job.rc, "130")
+    end
+end
+
+pub fn was_cancelled(job: Job) -> bool is
+    return fs::exists(job.out + ".cancel")
+end
+
+;; ── Stan zadania ────────────────────────────────────────────────────────────
+
+pub fn finished(job: Job) -> bool is
+    if !fs::is_file(job.rc) is return false end
+    return strings::trim(fs::read(job.rc)) != ""
+end
+
+pub fn succeeded(job: Job) -> bool is
+    if !finished(job) is return false end
+    return strings::trim(fs::read(job.rc)) == "0"
+end
+
+pub fn output(job: Job) -> string is
+    if !fs::is_file(job.out) is return "" end
+    return fs::read(job.out)
+end
+
+;; Bajty zapisane do tej pory (postep pobierania).
+pub fn bytes_so_far(job: Job) -> int is
+    if !fs::is_file(job.out) is return 0 end
+    return fs::size(job.out)
+end
+
+pub fn cleanup(job: Job) is
+    util::remove_quiet(job.out)
+    util::remove_quiet(job.rc)
+    util::remove_quiet(job.out + ".cancel")
+end
+
+;; Konczy zadanie `start_get`: sukces -> zapis do cache; porazka -> ostatnia znana
+;; odpowiedz z cache (`cached = true`); brak obu -> `ok = false`.
+pub fn finish_fetch(job: Job) -> Fetched is
+    if succeeded(job) is
+        let text: string = output(job)
+        cleanup(job)
+        if text != "" is
+            cache::save(job.key, text)
+            return Fetched { ok: true, text: text, cached: false, at: time::now_unix(), url: job.url }
+        end
+    else is
+        cleanup(job)
+    end
+    if cache::has(job.key) is
+        return Fetched { ok: true, text: cache::load(job.key), cached: true, at: cache::saved_at(job.key), url: job.url }
+    end
+    return Fetched { ok: false, text: "", cached: false, at: 0, url: job.url }
+end
+
+;; ── Naglowki HTTP ───────────────────────────────────────────────────────────
+
+;; Wartosc ostatniego naglowka `name` (bez rozrozniania wielkosci liter) z tekstu
+;; odpowiedzi (przy przekierowaniach jest ich kilka blokow — liczy sie ostatni); "" gdy brak.
+pub fn header_value(hdrs: string, name: string) -> string is
+    let lines: [string] = strings::split(hdrs, "\n")
+    let want: string = strings::to_lower(name) + ":"
+    let mut found: string = ""
+    let mut i: int = 0
+    while i < lines.len() is
+        let l: string = strings::trim(lines[i])
+        i += 1
+        if strings::to_lower(l).starts_with(want) is
+            found = strings::trim(l[want.len()..l.len()])
+        end
+    end
+    return found
+end
+
+;; Typ tresci bez parametrow ("text/html; charset=utf-8" -> "text/html"), male litery.
+pub fn content_type(hdrs: string) -> string is
+    let ct: string = header_value(hdrs, "content-type")
+    let parts: [string] = strings::split(ct, ";")
+    return strings::to_lower(strings::trim(parts[0]))
+end
+
+;; Content-Length albo -1, gdy serwer go nie podal.
+pub fn content_length(hdrs: string) -> int is
+    let v: string = header_value(hdrs, "content-length")
+    if v == "" || !strings::is_numeric(v) is return -1 end
+    return util::to_int(v)
+end
