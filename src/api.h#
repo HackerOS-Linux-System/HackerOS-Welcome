@@ -1,0 +1,299 @@
+mod util
+mod jsparse
+
+use "std -> strings" from "strings"
+
+;; ── Modele ──────────────────────────────────────────────────────────────────
+
+struct Edition is
+    pub id:       string
+    pub name:     string
+    pub img:      string
+    pub sf:       string
+    pub mega:     string
+    pub drive:    string
+    pub transfer: string
+    pub actions:  string
+end
+
+struct ReleaseEntry is
+    pub version:   string
+    pub desc:      string
+    pub dates:     [string]
+    pub changelog: [string]
+end
+
+struct DocSection is
+    pub key:       string
+    pub title:     string
+    pub body:      string
+    ;; ktory wariant jezykowy dostarczyl tresc: "pl" / "en" / "de" albo ""
+    pub lang_used: string
+    ;; czy tresc tej sekcji w ogole istnieje na stronie (w ktoryms jezyku)
+    pub available: bool
+    ;; polecenia z <code>...</code> — do przyciskow „Kopiuj”
+    pub snippets:  [string]
+end
+
+struct GalleryImage is
+    pub url:     string
+    pub caption: string
+end
+
+pub fn base_url() -> string is
+    return "https://hackeros-linux-system.github.io/HackerOS-Website/"
+end
+
+;; Pelny adres zasobu na stronie (do wyswietlenia w UI jako dowod, ze dane sa zywe).
+pub fn resolve_url(path: string) -> string is
+    if path.starts_with("http") is return path end
+    return base_url() + path
+end
+
+pub fn edition_has_any_link(e: Edition) -> bool is
+    return e.sf != "" || e.mega != "" || e.drive != "" || e.transfer != "" || e.actions != ""
+end
+
+;; Zlacza edycji w kolejnosci `order` (np. ["mega","sf",...]) — pomocnik UI.
+pub fn edition_link(e: Edition, source: string) -> string is
+    if source == "sf" is return e.sf end
+    if source == "mega" is return e.mega end
+    if source == "drive" is return e.drive end
+    if source == "transfer" is return e.transfer end
+    if source == "actions" is return e.actions end
+    return ""
+end
+
+;; Sciezki zasobow na stronie
+pub fn path_editions() -> string is return "translations/download-editions.js" end
+pub fn path_releases() -> string is return "translations/files/all/pl.js" end
+pub fn path_docs() -> string is return "translations/hackeros-documentation.js" end
+pub fn path_doc_engine() -> string is return "translations/doc-engine.js" end
+pub fn path_gallery() -> string is return "gallery/gallery.json" end
+
+;; ── Edycje ──────────────────────────────────────────────────────────────────
+
+;; Kazdy blok zaczyna sie od `id: '...'` i trwa do nastepnego `id:`.
+pub fn parse_editions(text: string) -> [Edition] is
+    let mut result: [Edition] = []
+    let starts: [int] = jsparse::key_positions(text, "id", "'")
+    let mut i: int = 0
+    while i < starts.len() is
+        let s: int = starts[i]
+        let mut e: int = text.len()
+        if i + 1 < starts.len() is e = starts[i + 1] end
+        let block: string = text[s..e]
+        let id: string = jsparse::field(block, "id", "'")
+        let mut name: string = jsparse::field(block, "name", "'")
+        if name == "" is name = id end
+        if id != "" is
+            result.push(Edition {
+                id: id,
+                name: name,
+                img: jsparse::field(block, "img", "'"),
+                sf: jsparse::field(block, "sf", "'"),
+                mega: jsparse::field(block, "mega", "'"),
+                drive: jsparse::field(block, "drive", "'"),
+                transfer: jsparse::field(block, "transfer", "'"),
+                actions: jsparse::field(block, "actions", "'"),
+            })
+        end
+        i += 1
+    end
+    return result
+end
+
+;; ── Wydania / changelog ─────────────────────────────────────────────────────
+
+;; Kazdy blok zaczyna sie od `version: "..."`.
+pub fn parse_releases(text: string) -> [ReleaseEntry] is
+    let mut result: [ReleaseEntry] = []
+    let starts: [int] = jsparse::key_positions(text, "version", "\"")
+    let mut i: int = 0
+    while i < starts.len() is
+        let s: int = starts[i]
+        let mut e: int = text.len()
+        if i + 1 < starts.len() is e = starts[i + 1] end
+        let block: string = text[s..e]
+        let mut ver: string = jsparse::field(block, "version", "\"")
+        if ver == "" is ver = "?" end
+        result.push(ReleaseEntry {
+            version: ver,
+            desc: jsparse::field(block, "desc", "\""),
+            dates: jsparse::string_array(block, "dates"),
+            changelog: jsparse::string_array(block, "changelog"),
+        })
+        i += 1
+    end
+    return result
+end
+
+;; ── Dokumentacja ────────────────────────────────────────────────────────────
+
+pub fn fallback_tab_keys() -> [string] is
+    return ["introduction", "hardware", "installation", "firstSteps",
+            "environment", "configuration", "troubleshooting", "license",
+            "tools", "programming", "editions", "gaming", "gallery"]
+end
+
+;; Unikalne polecenia z fragmentow <code>...</code> w SUROWEJ (nieoczyszczonej z HTML) tresci.
+pub fn extract_code_snippets(raw_vals: [string]) -> [string] is
+    let mut seen: [string] = []
+    let mut v: int = 0
+    while v < raw_vals.len() is
+        let raw: string = raw_vals[v]
+        v += 1
+        let mut pos: int = 0
+        let mut guard: int = 0
+        while guard < 4096 is
+            guard += 1
+            let a: int = util::find_from(raw, "<code>", pos)
+            if a < 0 is break end
+            let b: int = util::find_from(raw, "</code>", a + 6)
+            if b < 0 is break end
+            let inner: string = raw[a + 6..b]
+            pos = b + 7
+            if inner.contains("<") is continue end
+            let clean: string = strings::trim(jsparse::decode_entities(inner))
+            if clean == "" is continue end
+            let mut dup: bool = false
+            let mut k: int = 0
+            while k < seen.len() is
+                if seen[k] == clean is dup = true end
+                k += 1
+            end
+            if !dup is seen.push(clean) end
+        end
+    end
+    return seen
+end
+
+;; Pierwszy literal (zwykle pole "h2") = tytul, reszta = akapity.
+pub fn doc_title(vals: [string]) -> string is
+    return jsparse::html_strip(vals[0])
+end
+
+pub fn doc_body(vals: [string]) -> string is
+    let mut body: string = ""
+    let mut i: int = 1
+    while i < vals.len() is
+        let clean: string = strings::trim(jsparse::html_strip(vals[i]))
+        i += 1
+        if clean == "" is continue end
+        body = body + clean + "\n\n"
+    end
+    return strings::trim(body)
+end
+
+;; Tresc zakladki `key` w jednym jezyku: wszystkie literaly z bloku, albo [] gdy brak.
+fn tab_values(content: string, key: string) -> [string] is
+    if content == "" is return [] end
+    let tab: string = jsparse::extract_balanced(content, key)
+    if tab == "" is return [] end
+    return jsparse::quoted(tab, true, true)
+end
+
+;; Kolejnosc jezykow: preferowany pierwszy, potem reszta z [pl, en, de].
+pub fn lang_order(primary: string) -> [string] is
+    let all: [string] = ["pl", "en", "de"]
+    let mut res: [string] = [primary]
+    let mut i: int = 0
+    while i < all.len() is
+        if all[i] != primary is res.push(all[i]) end
+        i += 1
+    end
+    return res
+end
+
+;; Buduje cala dokumentacje z dwoch plikow: doc-engine.js (lista kluczy zakladek,
+;; moze byc "") i hackeros-documentation.js. `primary` = preferowany jezyk.
+;; Wynik pusty, gdy `doc_text` jest pusty.
+pub fn build_docs(engine_text: string, doc_text: string, primary: string) -> [DocSection] is
+    let mut result: [DocSection] = []
+    if doc_text == "" is return result end
+
+    let mut keys: [string] = fallback_tab_keys()
+    if engine_text != "" is
+        ;; TAB_KEYS moze byc obiektem { ... } albo tablica [ ... ] — obsluz oba
+        let mut tk: string = jsparse::extract_balanced(engine_text, "TAB_KEYS")
+        if tk == "" is tk = jsparse::extract_bracket(engine_text, "TAB_KEYS") end
+        if tk != "" is
+            let found: [string] = jsparse::quoted(tk, true, false)
+            if found.len() > 0 is keys = found end
+        end
+    end
+
+    ;; zawartosc "content" kazdego jezyka
+    let langs: [string] = lang_order(primary)
+    let mut contents: [string] = []
+    let mut pl_tabs: [string] = []
+    let mut l: int = 0
+    while l < langs.len() is
+        let root: string = jsparse::extract_balanced(doc_text, langs[l])
+        let mut content: string = ""
+        if root != "" is
+            content = jsparse::extract_balanced(root, "content")
+            if langs[l] == "pl" is
+                let tb: string = jsparse::extract_bracket(root, "tabs")
+                if tb != "" is pl_tabs = jsparse::quoted(tb, true, false) end
+            end
+        end
+        contents.push(content)
+        l += 1
+    end
+
+    let mut i: int = 0
+    while i < keys.len() is
+        let key: string = keys[i]
+        let mut found: bool = false
+        let mut title: string = key
+        let mut body: string = ""
+        let mut lang: string = ""
+        let mut snippets: [string] = []
+        let mut li: int = 0
+        while li < langs.len() && !found is
+            let vals: [string] = tab_values(contents[li], key)
+            if vals.len() > 0 is
+                found = true
+                title = doc_title(vals)
+                body = doc_body(vals)
+                snippets = extract_code_snippets(vals)
+                lang = langs[li]
+            end
+            li += 1
+        end
+        if found is
+            if title == "" is title = key end
+            result.push(DocSection { key: key, title: title, body: body, lang_used: lang, available: true, snippets: snippets })
+        else is
+            let mut t: string = key
+            if i < pl_tabs.len() is t = pl_tabs[i] end
+            result.push(DocSection { key: key, title: t, body: "", lang_used: "", available: false, snippets: [] })
+        end
+        i += 1
+    end
+    return result
+end
+
+;; ── Galeria ─────────────────────────────────────────────────────────────────
+
+;; Manifest gallery.json: tablica obiektow {"src": "...", "caption": "..."}.
+;; Pusta lista, gdy manifestu nie ma / ma inny format.
+pub fn parse_gallery(text: string) -> [GalleryImage] is
+    let mut result: [GalleryImage] = []
+    let starts: [int] = jsparse::key_positions(text, "\"src\"", "\"")
+    let mut i: int = 0
+    while i < starts.len() is
+        let s: int = starts[i]
+        let mut e: int = text.len()
+        if i + 1 < starts.len() is e = starts[i + 1] end
+        let block: string = text[s..e]
+        let url: string = jsparse::field(block, "\"src\"", "\"")
+        let caption: string = jsparse::field(block, "\"caption\"", "\"")
+        if url != "" is
+            result.push(GalleryImage { url: url, caption: caption })
+        end
+        i += 1
+    end
+    return result
+end
