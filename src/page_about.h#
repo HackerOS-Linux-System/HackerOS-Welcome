@@ -1,0 +1,133 @@
+mod util
+mod net
+mod sysinfo
+mod widgets
+
+use "bit -> gtk" from "gtk"
+
+pub fn build(ctx: widgets::Ctx) -> gtk::ScrolledWindow is
+    let page: widgets::Page = widgets::page_shell("O systemie", "Bieżący stan systemu HackerOS.", 20)
+    let body: gtk::Box = page.body
+
+    let about_btn: gtk::Button = widgets::pill("O programie HackerOS Welcome", "distro-badge")
+    gtk::set_margins(about_btn.handle, 0, 20, 0, 0)
+    body.append(about_btn.handle)
+    ctx.app.on_click(about_btn, || is widgets::show_about(ctx) end)
+
+    ;; ── Stan systemu ──
+    body.append(widgets::section_label("Stan systemu").handle)
+    let status_slot: gtk::Box = gtk::vbox(12)
+    gtk::set_margins(status_slot.handle, 8, 24, 0, 0)
+    body.append(status_slot.handle)
+
+    let refresh: gtk::Button = widgets::pill("Odśwież stan systemu", "distro-badge")
+    gtk::set_margins(refresh.handle, 0, 24, 0, 0)
+    body.append(refresh.handle)
+    ctx.app.on_click(refresh, || is populate_status(ctx, status_slot) end)
+    populate_status(ctx, status_slot)
+
+    ;; ── Informacje o dystrybucji ──
+    body.append(widgets::section_label("Informacje o systemie").handle)
+    let info: gtk::Box = gtk::vbox(0)
+    gtk::add_css_class(info.handle, "motd-card")
+    gtk::set_margins(info.handle, 8, 24, 0, 0)
+    let keys: [string] = ["Dystrybucja", "Wariant", "Wersja aplikacji", "Jądro", "Architektura", "Licencja"]
+    let vals: [string] = ["HackerOS", sysinfo::distro_variant(), widgets::app_version(), sysinfo::kernel_version(), sysinfo::arch(), "GPL-3.0-or-later"]
+    let mut i: int = 0
+    while i < keys.len() is
+        let row: gtk::Box = gtk::hbox(0)
+        gtk::set_margins(row.handle, 4, 4, 0, 0)
+        let k: gtk::Label = widgets::text(keys[i] + ":", "motd-header", false)
+        k.set_width_chars(22)
+        row.append(k.handle)
+        row.append(widgets::text(vals[i], "motd-text", false).handle)
+        info.append(row.handle)
+        i += 1
+    end
+    body.append(info.handle)
+
+    ;; ── Linki ──
+    body.append(widgets::section_label("Linki").handle)
+    let links: gtk::Box = gtk::hbox(12)
+    links.set_homogeneous(true)
+    gtk::set_margins(links.handle, 8, 0, 0, 0)
+    let a: gtk::Button = widgets::action_card("web-browser-symbolic", "Strona HackerOS", "hackeros-linux-system.github.io")
+    widgets::bind_action(ctx, a, "website")
+    links.append(a.handle)
+    let b: gtk::Button = widgets::action_card("system-software-install-symbolic", "GitHub", "Kod źródłowy projektu")
+    widgets::bind_action(ctx, b, "github")
+    links.append(b.handle)
+    let c: gtk::Button = widgets::action_card("chat-message-new-symbolic", "X / Twitter", "@hackeros_linux")
+    widgets::bind_action(ctx, c, "x")
+    links.append(c.handle)
+    body.append(links.handle)
+
+    return page.root
+end
+
+;; Karta „wiersz z paskiem”: podpis + wartosc + ProgressBar.
+fn bar_row(label_text: string, value_text: string, fraction: f64) -> gtk::Box is
+    let card: gtk::Box = gtk::vbox(6)
+    gtk::add_css_class(card.handle, "motd-card")
+    let top: gtk::Box = gtk::hbox(10)
+    let l: gtk::Label = widgets::text(label_text, "action-title", false)
+    gtk::set_expand(l.handle, true, false)
+    top.append(l.handle)
+    top.append(widgets::text(value_text, "footer-label", false).handle)
+    card.append(top.handle)
+    let bar: gtk::ProgressBar = gtk::new_progress_bar()
+    let mut fr: f64 = fraction
+    if fr < 0.0 is fr = 0.0 end
+    if fr > 1.0 is fr = 1.0 end
+    bar.set_fraction(fr)
+    card.append(bar.handle)
+    return card
+end
+
+;; Dysk / RAM / uptime od razu; `apt list --upgradable` (moze trwac sekundy)
+;; w tle — karta apt ma najpierw „Sprawdzanie…” i jest uzupelniana po zakonczeniu.
+pub fn populate_status(ctx: widgets::Ctx, slot: gtk::Box) is
+    widgets::clear_slot(ctx, slot)
+    let st: sysinfo::SystemStatus = sysinfo::collect()
+    slot.append(bar_row("Dysk (/)", st.disk_used + " / " + st.disk_total, st.disk_fraction).handle)
+    slot.append(bar_row("Pamięć RAM", st.ram_used + " / " + st.ram_total, st.ram_fraction).handle)
+
+    let apt_card: gtk::Box = gtk::hbox(10)
+    gtk::add_css_class(apt_card.handle, "motd-card")
+    let apt_icon: gtk::Label = gtk::new_label("📦")
+    apt_card.append(apt_icon.handle)
+    let apt_lbl: gtk::Label = widgets::text("Sprawdzanie aktualizacji apt…", "action-title", false)
+    gtk::set_expand(apt_lbl.handle, true, false)
+    apt_card.append(apt_lbl.handle)
+    slot.append(apt_card.handle)
+
+    let up_card: gtk::Box = gtk::hbox(10)
+    gtk::add_css_class(up_card.handle, "motd-card")
+    up_card.append(gtk::new_label("⏱").handle)
+    let up_lbl: gtk::Label = widgets::text("System działa od: " + st.uptime, "action-title", false)
+    gtk::set_expand(up_lbl.handle, true, false)
+    up_card.append(up_lbl.handle)
+    slot.append(up_card.handle)
+
+    ;; uzytkownik moze kliknac „Odswiez” przed koncem sprawdzania (karta zniknie) —
+    ;; trzymamy referencje na widgety, ktore wypelni zadanie
+    gtk::keep(apt_lbl.handle)
+    gtk::keep(apt_icon.handle)
+    let job: net::Job = sysinfo::start_apt_check()
+    widgets::wait_job(ctx, job, |j: net::Job| is
+        if net::succeeded(j) is
+            let n: int = sysinfo::parse_apt(net::output(j))
+            if n > 0 is
+                apt_lbl.set_text(to_string(n) + " dostępnych aktualizacji apt")
+            else is
+                apt_lbl.set_text("System jest aktualny (0 aktualizacji apt)")
+            end
+        else is
+            apt_icon.set_text("❔")
+            apt_lbl.set_text("Nie udało się sprawdzić aktualizacji apt")
+        end
+        net::cleanup(j)
+        gtk::release(apt_lbl.handle)
+        gtk::release(apt_icon.handle)
+    end)
+end
