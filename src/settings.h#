@@ -1,0 +1,176 @@
+mod util
+
+use "std -> fs" from "fs"
+use "std -> strings" from "strings"
+
+pub fn config_dir() -> string is
+    let d: string = util::home() + "/.config/hackeros-welcome"
+    util::mkdir_p(d)
+    return d
+end
+
+fn settings_path() -> string is return config_dir() + "/settings.ini" end
+fn state_path() -> string is return config_dir() + "/state" end
+
+pub fn default_source() -> string is return "sf" end
+pub fn default_lang() -> string is return "pl" end
+
+pub fn all_sources() -> [string] is return ["sf", "mega", "drive", "transfer", "actions"] end
+pub fn all_langs() -> [string] is return ["pl", "en", "de"] end
+
+;; ── Ustawienia ──────────────────────────────────────────────────────────────
+
+fn read_key(key: string, fallback: string) -> string is
+    if !fs::is_file(settings_path()) is return fallback end
+    let v: string = util::kv_lookup(fs::read(settings_path()), key + "=")
+    if v == "" is return fallback end
+    return v
+end
+
+pub fn preferred_source() -> string is
+    let v: string = read_key("preferred_source", default_source())
+    let all: [string] = all_sources()
+    let mut i: int = 0
+    while i < all.len() is
+        if all[i] == v is return v end
+        i += 1
+    end
+    return default_source()
+end
+
+pub fn doc_lang_primary() -> string is
+    let v: string = read_key("doc_lang_primary", default_lang())
+    let all: [string] = all_langs()
+    let mut i: int = 0
+    while i < all.len() is
+        if all[i] == v is return v end
+        i += 1
+    end
+    return default_lang()
+end
+
+pub fn autostart_enabled() -> bool is
+    return read_key("autostart_enabled", "false") == "true"
+end
+
+pub fn render_ini(source: string, lang: string, autostart: bool) -> string is
+    let mut a: string = "false"
+    if autostart is a = "true" end
+    return "[General]\npreferred_source=" + source + "\ndoc_lang_primary=" + lang + "\nautostart_enabled=" + a + "\n"
+end
+
+fn write_all(source: string, lang: string, autostart: bool) is
+    fs::write(settings_path(), render_ini(source, lang, autostart))
+end
+
+pub fn set_preferred_source(v: string) is
+    write_all(v, doc_lang_primary(), autostart_enabled())
+end
+
+pub fn set_doc_lang_primary(v: string) is
+    write_all(preferred_source(), v, autostart_enabled())
+end
+
+;; Kolejnosc zrodel pobierania z ulubionym na poczatku.
+pub fn source_order() -> [string] is
+    let pref: string = preferred_source()
+    let all: [string] = all_sources()
+    let mut res: [string] = [pref]
+    let mut i: int = 0
+    while i < all.len() is
+        if all[i] != pref is res.push(all[i]) end
+        i += 1
+    end
+    return res
+end
+
+;; ── Stan: ostatnia zakladka ─────────────────────────────────────────────────
+
+pub fn load_last_tab(fallback: string) -> string is
+    if !fs::is_file(state_path()) is return fallback end
+    let t: string = strings::trim(fs::read(state_path()))
+    if t == "" is return fallback end
+    return t
+end
+
+pub fn save_last_tab(tab: string) is
+    fs::write(state_path(), tab)
+end
+
+;; ── Autostart (XDG autostart .desktop) ──────────────────────────────────────
+
+fn autostart_dir() -> string is
+    return util::home() + "/.config/autostart"
+end
+
+pub fn autostart_desktop_path() -> string is
+    return autostart_dir() + "/org.hackeros.welcome.desktop"
+end
+
+pub fn is_autostart_active() -> bool is
+    return fs::exists(autostart_desktop_path())
+end
+
+pub fn fallback_desktop_entry() -> string is
+    return "[Desktop Entry]\nType=Application\nName=HackerOS Welcome\nExec=hackeros-welcome\nIcon=org.hackeros.welcome\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+end
+
+;; Tresc wpisu autostartu: oryginalny .desktop z systemu (jesli jest) + znacznik
+;; X-GNOME-Autostart-enabled, w przeciwnym razie wpis minimalny.
+pub fn autostart_content(system_desktop: string) -> string is
+    if system_desktop == "" is return fallback_desktop_entry() end
+    if system_desktop.contains("X-GNOME-Autostart-enabled") is return system_desktop end
+    let mut c: string = system_desktop
+    if !c.ends_with("\n") is c = c + "\n" end
+    return c + "X-GNOME-Autostart-enabled=true\n"
+end
+
+;; Wlacza/wylacza autostart (kopiuje/usuwa .desktop w ~/.config/autostart/). Zwraca powodzenie.
+pub fn set_autostart(enabled: bool) -> bool is
+    let target: string = autostart_desktop_path()
+    if !enabled is
+        util::remove_quiet(target)
+        write_all(preferred_source(), doc_lang_primary(), false)
+        return true
+    end
+    util::mkdir_p(autostart_dir())
+    let candidates: [string] = ["/usr/share/applications/org.hackeros.welcome.desktop",
+                                "/usr/local/share/applications/org.hackeros.welcome.desktop"]
+    let mut content: string = ""
+    let mut i: int = 0
+    while i < candidates.len() && content == "" is
+        if fs::is_file(candidates[i]) is content = fs::read(candidates[i]) end
+        i += 1
+    end
+    fs::write(target, autostart_content(content))
+    if !fs::exists(target) is return false end
+    write_all(preferred_source(), doc_lang_primary(), true)
+    return true
+end
+
+;; Czytelne nazwy zrodel pobierania / jezykow (dla chipow i list rozwijanych).
+pub fn source_label(id: string) -> string is
+    if id == "sf" is return "SourceForge" end
+    if id == "mega" is return "Mega" end
+    if id == "drive" is return "Google Drive" end
+    if id == "transfer" is return "Transfer.it" end
+    if id == "actions" is return "GitHub Actions" end
+    return id
+end
+
+pub fn lang_label(id: string) -> string is
+    if id == "pl" is return "Polski" end
+    if id == "en" is return "English" end
+    if id == "de" is return "Deutsch" end
+    return id
+end
+
+;; Indeks `id` w `ids` (0 gdy brak).
+pub fn index_in(ids: [string], id: string) -> int is
+    let mut i: int = 0
+    while i < ids.len() is
+        if ids[i] == id is return i end
+        i += 1
+    end
+    return 0
+end
