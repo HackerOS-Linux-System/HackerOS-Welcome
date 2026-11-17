@@ -1,0 +1,209 @@
+mod util
+
+use "std -> strings" from "strings"
+use "std -> fs" from "fs"
+use "std -> time" from "time"
+
+pub fn motd_dir() -> string is return "/usr/lib/HackerOS/motd" end
+pub fn template_path() -> string is return "/usr/lib/HackerOS/motd/template/HackerOS.md" end
+pub fn distrorc_path() -> string is return "/etc/xdg/kcm-about-distrorc" end
+
+;; ── Wariant dystrybucji ──────────────────────────────────────────────────────
+
+pub fn read_variant() -> string is
+    let rc: string = util::read_or(distrorc_path(), "")
+    let v: string = util::kv_lookup(rc, "Variant=")
+    if v == "" is return "Standard" end
+    return v
+end
+
+;; ── Usuwanie Markdown ────────────────────────────────────────────────────────
+
+;; Zdejmuje pary znacznikow `marker` ... `marker` (np. "**"), zostawiajac tresc.
+;; Pusta tresc ("****") zostaje bez zmian. Dla `word_bound == true` (podkreslniki)
+;; znacznik musi stac na granicy slowa — dzieki temu `update_system` zostaje cale.
+pub fn unwrap_pairs(line: string, marker: string, word_bound: bool) -> string is
+    let mlen: int = marker.len()
+    let mut out: string = ""
+    let mut rest: string = line
+    let mut guard: int = 0
+    while guard < 10000 is
+        guard += 1
+        let a: int = util::find_from(rest, marker, 0)
+        if a < 0 is
+            out = out + rest
+            return out
+        end
+        let b: int = util::find_from(rest, marker, a + mlen)
+        if b < 0 is
+            out = out + rest
+            return out
+        end
+        let mut ok: bool = b > a + mlen
+        if ok && word_bound is
+            let mut prev: string = ""
+            if a > 0 is
+                prev = rest[a - 1..a]
+            elsif out.len() > 0 is
+                prev = out[out.len() - 1..out.len()]
+            end
+            let after_end: int = b + mlen
+            let mut next: string = ""
+            if after_end < rest.len() is next = rest[after_end..after_end + 1] end
+            if util::is_word_byte(prev) || util::is_word_byte(next) is ok = false end
+        end
+        if ok is
+            out = out + rest[0..a] + rest[a + mlen..b]
+            rest = rest[b + mlen..rest.len()]
+        else is
+            ;; to nie jest para — przepisz znacznik doslownie i szukaj dalej
+            out = out + rest[0..a + mlen]
+            rest = rest[a + mlen..rest.len()]
+        end
+    end
+    return out + rest
+end
+
+;; Linia zlozona z >= 3 znakow - * _ (i bialych znakow) = linia pozioma.
+fn is_hr(line: string) -> bool is
+    let t: string = strings::trim(line)
+    if t.len() < 3 is return false end
+    let mut i: int = 0
+    while i < t.len() is
+        let c: string = t[i..i + 1]
+        if !(c == "-" || c == "*" || c == "_" || c == " ") is return false end
+        i += 1
+    end
+    let c0: string = t[0..1]
+    if c0 == " " is return false end
+    ;; wszystkie niebiale znaki musza byc takie same
+    let mut j: int = 0
+    while j < t.len() is
+        let c: string = t[j..j + 1]
+        if c != " " && c != c0 is return false end
+        j += 1
+    end
+    return true
+end
+
+;; Usuwa wiodace `#`-y naglowka ATX ("## Tytul" -> "Tytul").
+fn strip_heading(line: string) -> string is
+    let mut n: int = 0
+    while n < line.len() && n < 6 && line[n..n + 1] == "#" is
+        n += 1
+    end
+    if n > 0 && n < line.len() && line[n..n + 1] == " " is
+        return strings::trim_start(line[n..line.len()])
+    end
+    return line
+end
+
+;; "  - punkt" / "* punkt" -> "  • punkt"
+fn convert_bullet(line: string) -> string is
+    let mut i: int = 0
+    while i < line.len() && line[i..i + 1] == " " is
+        i += 1
+    end
+    if i + 1 < line.len() is
+        let m: string = line[i..i + 1]
+        let sp: string = line[i + 1..i + 2]
+        if (m == "-" || m == "*") && sp == " " is
+            ;; znacznik zastepczy ASCII (zamieniany na • na samym koncu), zeby
+            ;; dalsza obrobka napisu nie ciela po bajtach wielobajtowego znaku
+            return line[0..i] + "@@BULLET@@ " + strings::trim_start(line[i + 2..line.len()])
+        end
+    end
+    return line
+end
+
+pub fn strip_markdown(input: string) -> string is
+    let lines: [string] = strings::split(input, "\n")
+    let mut out: [string] = []
+    let mut in_code: bool = false
+    let mut i: int = 0
+    while i < lines.len() is
+        let raw: string = lines[i]
+        i += 1
+        let t: string = strings::trim(raw)
+        ;; ogrodzone bloki kodu ``` ... ``` — pomijamy razem z zawartoscia
+        if t.starts_with("```") is
+            in_code = !in_code
+            continue
+        end
+        if in_code is continue end
+        ;; wiersze i separatory tabel
+        if t.starts_with("|") is continue end
+        if is_hr(raw) is continue end
+
+        let mut line: string = strip_heading(raw)
+        line = convert_bullet(line)
+        line = unwrap_pairs(line, "***", false)
+        line = unwrap_pairs(line, "___", true)
+        line = unwrap_pairs(line, "**", false)
+        line = unwrap_pairs(line, "__", true)
+        line = unwrap_pairs(line, "*", false)
+        line = unwrap_pairs(line, "_", true)
+        line = unwrap_pairs(line, "`", false)
+        out.push(line)
+    end
+
+    ;; zloz, sciesn 3+ puste linie do 2, przytnij
+    let mut result: string = ""
+    let mut blanks: int = 0
+    let mut k: int = 0
+    while k < out.len() is
+        let l: string = out[k]
+        k += 1
+        if strings::trim(l) == "" is
+            blanks += 1
+            if blanks > 1 is continue end
+        else is
+            blanks = 0
+        end
+        if result == "" && strings::trim(l) == "" is continue end
+        if result == "" is
+            result = l
+        else is
+            result = result + "\n" + l
+        end
+    end
+    return strings::replace_all(strings::trim(result), "@@BULLET@@", "•")
+end
+
+;; Sklada gotowy tekst z szablonu, wariantu i porady (czysta funkcja — latwa do testow).
+pub fn assemble(template_text: string, variant: string, tip: string) -> string is
+    let mut s: string = strings::replace_all(template_text, "%VARIANT%", variant)
+    s = strings::replace_all(s, "%TIP%", tip)
+    s = strings::replace_all(s, "~", "\n")
+    return strip_markdown(s)
+end
+
+;; ── Losowanie porady ─────────────────────────────────────────────────────────
+
+;; Tresc losowego pliku *.md z katalogu MOTD, albo "" gdy infrastruktury brak.
+fn pick_random_tip() -> string is
+    if !fs::is_dir(motd_dir()) is return "" end
+    let names: [string] = fs::list_dir(motd_dir())
+    let mut tips: [string] = []
+    let mut i: int = 0
+    while i < names.len() is
+        if names[i].ends_with(".md") is
+            tips.push(motd_dir() + "/" + names[i])
+        end
+        i += 1
+    end
+    if tips.len() == 0 is return "" end
+    let idx: int = time::now_ms() % tips.len()
+    let chosen: string = tips[idx]
+    if !fs::is_file(chosen) is return "" end
+    return fs::read(chosen)
+end
+
+;; Zlozony MOTD albo "" gdy infrastruktura MOTD nie jest zainstalowana
+;; (wtedy karta MOTD jest po prostu ukryta).
+pub fn load() -> string is
+    let tip: string = pick_random_tip()
+    if tip == "" is return "" end
+    let tpl: string = util::read_or(template_path(), "%TIP%")
+    return assemble(tpl, read_variant(), tip)
+end
