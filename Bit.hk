@@ -1,0 +1,47 @@
+[package]
+-> name        => hackeros-welcome
+-> version     => 0.9.0
+-> description => HackerOS Welcome — aplikacja powitalna HackerOS, przepisana z Vala na H# (GTK4 przez bibliotekę gtk z bit)
+-> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
+-> license     => GPL-3.0
+-> lang        => h#
+-> repository  => https://github.com/HackerOS-Linux-System/HackerOS-Welcome
+
+[edition]
+-> edition   => 2026
+-> toolchain => 0.9
+
+[layout]
+-> src   => src
+-> entry => src/main.h#
+-> tests => tests
+
+[dependencies]
+-> gtk => newest
+  
+[system-dependencies]
+-> gtk4
+--> version => >=4.10
+--> pkg-config => gtk4
+--> apt => libgtk-4-dev
+-> libadwaita
+--> version => >=1.5
+--> pkg-config => libadwaita-1
+--> apt => libadwaita-1-dev
+-> cairo
+--> pkg-config => cairo
+--> apt => libcairo2-dev
+-> pango
+--> pkg-config => pangocairo
+--> apt => libpango1.0-dev
+
+[build]
+-> link => static
+
+[commands]
+-> check
+--> run => bit check
+--> description => Sprawdź typy całego projektu
+-> run
+--> run => bit run
+--> description => Uruchom aplikację
