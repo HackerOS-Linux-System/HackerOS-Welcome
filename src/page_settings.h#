@@ -1,0 +1,87 @@
+mod util
+mod settings
+mod widgets
+
+use "bit -> gtk" from "gtk"
+
+pub fn build(ctx: widgets::Ctx) -> gtk::ScrolledWindow is
+    let page: widgets::Page = widgets::page_shell("Ustawienia", "Dostosuj zachowanie aplikacji HackerOS Welcome.", 24)
+    let body: gtk::Box = page.body
+
+    ;; ── Pobieranie ── (grupa libadwaita: wiersz z rozwijana lista)
+    let g_dl: gtk::PrefGroup = gtk::new_pref_group("Pobieranie", "Wybrane źródło będzie wyświetlane jako pierwsze na liście każdej edycji do pobrania.")
+    let src_row: gtk::ActionRow = gtk::new_action_row("Preferowane pierwsze źródło", "Zmiana widoczna po odświeżeniu strony Pobieranie")
+    let src_ids: [string] = settings::all_sources()
+    let src_dd: gtk::DropDown = gtk::new_drop_down()
+    gtk::set_align(src_dd.handle, gtk::align_fill(), gtk::align_center())
+    let mut i: int = 0
+    while i < src_ids.len() is
+        src_dd.append(settings::source_label(src_ids[i]))
+        i += 1
+    end
+    src_dd.set_selected(settings::index_in(src_ids, settings::preferred_source()))
+    src_row.add_suffix(src_dd.handle)
+    g_dl.add(src_row.handle)
+    gtk::set_margins(g_dl.handle, 8, 12, 0, 0)
+    body.append(g_dl.handle)
+
+    ctx.app.on_dropdown_change(src_dd, |idx: int| is
+        if idx >= 0 && idx < src_ids.len() is
+            settings::set_preferred_source(src_ids[idx])
+            widgets::notify(ctx, "Preferowane źródło: " + settings::source_label(src_ids[idx]))
+        end
+        return
+    end)
+
+    ;; ── Dokumentacja ──
+    let g_doc: gtk::PrefGroup = gtk::new_pref_group("Dokumentacja", "Gdy treść nie jest dostępna w wybranym języku, aplikacja pokaże najbliższy dostępny (kolejność zapasowa: pl → en → de).")
+    let lang_row: gtk::ActionRow = gtk::new_action_row("Preferowany język dokumentacji", "Zmiana widoczna po odświeżeniu dokumentacji")
+    let lang_ids: [string] = settings::all_langs()
+    let lang_dd: gtk::DropDown = gtk::new_drop_down()
+    gtk::set_align(lang_dd.handle, gtk::align_fill(), gtk::align_center())
+    let mut k: int = 0
+    while k < lang_ids.len() is
+        lang_dd.append(settings::lang_label(lang_ids[k]))
+        k += 1
+    end
+    lang_dd.set_selected(settings::index_in(lang_ids, settings::doc_lang_primary()))
+    lang_row.add_suffix(lang_dd.handle)
+    g_doc.add(lang_row.handle)
+    gtk::set_margins(g_doc.handle, 8, 12, 0, 0)
+    body.append(g_doc.handle)
+
+    ctx.app.on_dropdown_change(lang_dd, |idx: int| is
+        if idx >= 0 && idx < lang_ids.len() is
+            settings::set_doc_lang_primary(lang_ids[idx])
+            widgets::notify(ctx, "Język dokumentacji: " + settings::lang_label(lang_ids[idx]))
+        end
+        return
+    end)
+
+    ;; ── Uruchamianie ──
+    let g_run: gtk::PrefGroup = gtk::new_pref_group("Uruchamianie", "")
+    let auto_row: gtk::ActionRow = gtk::new_action_row("Pokazuj przy starcie systemu", "Aplikacja uruchomi się automatycznie po zalogowaniu do systemu.")
+    let sw: gtk::Switch = gtk::new_switch()
+    gtk::set_align(sw.handle, gtk::align_fill(), gtk::align_center())
+    sw.set_active(settings::is_autostart_active())
+    auto_row.add_suffix(sw.handle)
+    auto_row.set_activatable_widget(sw.handle)
+    g_run.add(auto_row.handle)
+    gtk::set_margins(g_run.handle, 8, 24, 0, 0)
+    body.append(g_run.handle)
+
+    ctx.app.on_switch(sw, |state: bool| is
+        let ok: bool = settings::set_autostart(state)
+        if ok is
+            if state is
+                widgets::notify(ctx, "Włączono autostart aplikacji")
+            else is
+                widgets::notify(ctx, "Wyłączono autostart aplikacji")
+            end
+        else is
+            widgets::notify(ctx, "Nie udało się zmienić ustawienia autostartu")
+        end
+    end)
+
+    return page.root
+end
