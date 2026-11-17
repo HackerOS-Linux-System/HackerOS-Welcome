@@ -1,0 +1,130 @@
+mod util
+mod api
+mod net
+mod settings
+mod widgets
+mod downloads
+
+use "bit -> gtk" from "gtk"
+
+struct DownloadPage is
+    pub root:   gtk::ScrolledWindow
+    pub slot:   gtk::Box
+    pub source: gtk::Label
+    pub search: gtk::SearchEntry
+end
+
+pub fn build(ctx: widgets::Ctx) -> DownloadPage is
+    let page: widgets::Page = widgets::page_shell("Pobieranie",
+        "Lista edycji HackerOS pobierana na żywo ze strony hackeros-linux-system.github.io. Wybierz źródło pobierania dla danej edycji.", 24)
+    let body: gtk::Box = page.body
+
+    let search: gtk::SearchEntry = gtk::new_search_entry()
+    search.set_placeholder("🔍 Szukaj edycji…")
+    gtk::set_margins(search.handle, 0, 12, 0, 0)
+    body.append(search.handle)
+
+    body.append(widgets::section_label("Edycje systemu").handle)
+
+    let source: gtk::Label = widgets::text("", "footer-label", true)
+    gtk::set_margins(source.handle, 4, 8, 0, 0)
+    body.append(source.handle)
+
+    let slot: gtk::Box = gtk::vbox(12)
+    gtk::set_margins(slot.handle, 4, 24, 0, 0)
+    body.append(slot.handle)
+
+    let refresh: gtk::Button = widgets::pill("Odśwież listę edycji", "distro-badge")
+    body.append(refresh.handle)
+
+    let dp: DownloadPage = DownloadPage { root: page.root, slot: slot, source: source, search: search }
+    ctx.app.on_click(refresh, || is populate(ctx, dp) end)
+    populate(ctx, dp)
+    return dp
+end
+
+pub fn refresh_if_stale(ctx: widgets::Ctx, p: DownloadPage) is
+    if widgets::is_stale(api::path_editions()) is populate(ctx, p) end
+end
+
+pub fn populate(ctx: widgets::Ctx, p: DownloadPage) is
+    widgets::set_loading(ctx, p.slot, "Pobieranie listy edycji…")
+    p.source.set_text("")
+    let job: net::Job = net::start_get(api::path_editions())
+    widgets::wait_job(ctx, job, |j: net::Job| is
+        let f: net::Fetched = net::finish_fetch(j)
+        let editions: [api::Edition] = api::parse_editions(f.text)
+        if !f.ok || editions.len() == 0 is
+            widgets::set_error(ctx, p.slot,
+                "Nie udało się pobrać listy edycji z HackerOS Website (brak sieci i brak danych w pamięci podręcznej). Sprawdź połączenie z internetem i spróbuj ponownie.",
+                || is populate(ctx, p) end)
+            widgets::notify(ctx, "Błąd pobierania listy edycji")
+            return
+        end
+
+        widgets::clear_slot(ctx, p.slot)
+        p.source.set_text(widgets::fetch_note(f, api::path_editions(), ""))
+        let list: gtk::Box = gtk::vbox(12)
+        p.slot.add_child(list.handle)
+        render_list(ctx, list, editions, "")
+
+        ;; pole wyszukiwania jest trwale — wyrejestruj stare domkniecie, zarejestruj nowe
+        ctx.app.unwatch(p.search.handle)
+        ctx.app.on_change(p.search.as_entry(), |q: string| is render_list(ctx, list, editions, q) end)
+        widgets::set_status(ctx, "Pobrano " + to_string(editions.len()) + " edycji HackerOS")
+    end)
+end
+
+fn render_list(ctx: widgets::Ctx, list: gtk::Box, editions: [api::Edition], query: string) is
+    widgets::clear_slot(ctx, list)
+    let q: string = util::lower(util::trim(query))
+    let mut shown: int = 0
+    let mut i: int = 0
+    while i < editions.len() is
+        let ed: api::Edition = editions[i]
+        i += 1
+        if q != "" && !(util::lower(ed.name).contains(q) || util::lower(ed.id).contains(q)) is continue end
+        list.append(edition_card(ctx, ed).handle)
+        shown += 1
+    end
+    if shown == 0 is
+        list.append(widgets::text("Brak edycji pasujących do wyszukiwania „" + query + "”.", "action-desc", true).handle)
+    end
+end
+
+fn edition_card(ctx: widgets::Ctx, ed: api::Edition) -> gtk::Box is
+    let card: gtk::Box = gtk::vbox(10)
+    gtk::add_css_class(card.handle, "motd-card")
+
+    let top: gtk::Box = gtk::hbox(10)
+    let name: gtk::Label = widgets::text(ed.name, "action-title", false)
+    gtk::set_expand(name.handle, true, false)
+    top.append(name.handle)
+    if !api::edition_has_any_link(ed) is
+        top.append(widgets::text("WKRÓTCE", "distro-badge", false).handle)
+    end
+    card.append(top.handle)
+
+    let chips: gtk::Box = gtk::hbox(8)
+    gtk::set_margins(chips.handle, 2, 0, 0, 0)
+    let suggested: string = "HackerOS-" + ed.id + ".iso"
+    ;; kolejnosc chipow wg preferencji z Ustawien
+    let order: [string] = settings::source_order()
+    let mut i: int = 0
+    while i < order.len() is
+        let src: string = order[i]
+        i += 1
+        let label: string = settings::source_label(src)
+        let url: string = api::edition_link(ed, src)
+        let chip: gtk::Button = gtk::new_button(label)
+        gtk::add_css_class(chip.handle, "chip-btn")
+        if url == "" is
+            gtk::set_sensitive(chip.handle, false)
+        else is
+            ctx.app.on_click(chip, || is downloads::start_flow(ctx, url, suggested, label) end)
+        end
+        chips.append(chip.handle)
+    end
+    card.append(chips.handle)
+    return card
+end
