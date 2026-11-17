@@ -1,0 +1,282 @@
+mod util
+
+use "std -> strings" from "strings"
+use "std -> conv" from "conv"
+
+;; ── Skanowanie ──────────────────────────────────────────────────────────────
+
+fn is_ws(c: string) -> bool is
+    return c == " " || c == "\t" || c == "\n" || c == "\r"
+end
+
+;; Pierwszy indeks >= i, pod ktorym nie ma bialego znaku.
+pub fn skip_ws(s: string, i: int) -> int is
+    let n: int = s.len()
+    let mut k: int = i
+    while k < n && is_ws(s[k..k + 1]) is
+        k += 1
+    end
+    return k
+end
+
+;; `i` wskazuje otwierajacy cudzyslow/apostrof; zwraca indeks zamykajacego
+;; (z pominieciem sekwencji \x) albo -1, gdy napis nie jest zamkniety.
+pub fn string_end(s: string, i: int) -> int is
+    let n: int = s.len()
+    let q: string = s[i..i + 1]
+    let mut k: int = i + 1
+    while k < n is
+        let c: string = s[k..k + 1]
+        if c == "\\" is
+            k += 2
+            continue
+        end
+        if c == q is return k end
+        k += 1
+    end
+    return -1
+end
+
+;; ── Odkodowanie ─────────────────────────────────────────────────────────────
+
+;; Odkodowuje \n \t \' \" \\ oraz \uXXXX (jak unescape_js w wersji Vala).
+pub fn unescape(s: string) -> string is
+    if !s.contains("\\") is return s end
+    let n: int = s.len()
+    let mut out: string = ""
+    let mut i: int = 0
+    while i < n is
+        let bs: int = util::find_from(s, "\\", i)
+        if bs < 0 || bs + 1 >= n is
+            out = out + s[i..n]
+            return out
+        end
+        out = out + s[i..bs]
+        let nx: string = s[bs + 1..bs + 2]
+        if nx == "u" && bs + 6 <= n is
+            let hex: string = s[bs + 2..bs + 6]
+            let code: int = util::hex_value(hex)
+            if code > 0 is
+                out = out + conv::int_to_char(code)
+                i = bs + 6
+                continue
+            end
+        end
+        if nx == "n" is
+            out = out + "\n"
+        elsif nx == "t" is
+            out = out + "\t"
+        else is
+            out = out + nx
+        end
+        i = bs + 2
+    end
+    return out
+end
+
+;; Usuwa znaczniki HTML (-> spacja), dekoduje podstawowe encje, zwija spacje, przycina.
+pub fn html_strip(s: string) -> string is
+    let mut out: string = ""
+    let mut i: int = 0
+    let n: int = s.len()
+    while i < n is
+        let lt: int = util::find_from(s, "<", i)
+        if lt < 0 is
+            out = out + s[i..n]
+            i = n
+        else is
+            let gt: int = util::find_from(s, ">", lt)
+            if gt < 0 is
+                out = out + s[i..n]
+                i = n
+            else is
+                out = out + s[i..lt] + " "
+                i = gt + 1
+            end
+        end
+    end
+    out = decode_entities(out)
+    out = strings::replace_all(out, "\t", " ")
+    let mut guard: int = 0
+    while out.contains("  ") && guard < 64 is
+        out = strings::replace_all(out, "  ", " ")
+        guard += 1
+    end
+    return strings::trim(out)
+end
+
+pub fn decode_entities(s: string) -> string is
+    let mut r: string = strings::replace_all(s, "&nbsp;", " ")
+    r = strings::replace_all(r, "&lt;", "<")
+    r = strings::replace_all(r, "&gt;", ">")
+    r = strings::replace_all(r, "&quot;", "\"")
+    r = strings::replace_all(r, "&#39;", "'")
+    ;; &amp; na koncu, zeby "&amp;lt;" nie stalo sie "<"
+    r = strings::replace_all(r, "&amp;", "&")
+    return r
+end
+
+;; ── Klucze i bloki ──────────────────────────────────────────────────────────
+
+;; Indeks poczatku klucza `key` (na granicy slowa) po ktorym, pomijajac biale
+;; znaki, stoi jeden ze znakow `seps` (np. ":" albo ":="); szukanie od `start`; -1 gdy brak.
+;; Odpowiednik regexu \bkey\s*[:=]
+pub fn find_key(text: string, key: string, start: int, seps: string) -> int is
+    let n: int = text.len()
+    let mut pos: int = start
+    while pos <= n is
+        let k: int = util::find_from(text, key, pos)
+        if k < 0 is return -1 end
+        let mut ok: bool = true
+        if k > 0 && util::is_word_byte(text[k - 1..k]) is ok = false end
+        let mut after: int = skip_ws(text, k + key.len())
+        ;; klucz w cudzyslowie (JSON: "content": {...}) — pomin zamykajacy cudzyslow
+        if after < n && (text[after..after + 1] == "\"" || text[after..after + 1] == "'") && !key.ends_with("\"") && !key.ends_with("'") is
+            after = skip_ws(text, after + 1)
+        end
+        if ok is
+            if after >= n is
+                ok = false
+            elsif !seps.contains(text[after..after + 1]) is
+                ok = false
+            end
+        end
+        if ok is return k end
+        pos = k + 1
+    end
+    return -1
+end
+
+;; Indeks pierwszego znaku wartosci po `key <sep> `.
+pub fn value_start(text: string, key_start: int, key: string) -> int is
+    let mut after: int = skip_ws(text, key_start + key.len())
+    if after < text.len() && (text[after..after + 1] == "\"" || text[after..after + 1] == "'") && !key.ends_with("\"") && !key.ends_with("'") is
+        after = skip_ws(text, after + 1)
+    end
+    return skip_ws(text, after + 1)
+end
+
+;; Zawartosc (bez nawiasow) pary `open`/`close` zaczynajacej sie w `open_idx`,
+;; z uwzglednieniem napisow — nawias wewnatrz tekstu dokumentacji nie psuje liczenia.
+;; "" gdy para nie jest zamknieta.
+pub fn balanced_from(text: string, open_idx: int, opener: string, closer: string) -> string is
+    let n: int = text.len()
+    if open_idx < 0 || open_idx >= n is return "" end
+    let mut depth: int = 0
+    let mut i: int = open_idx
+    while i < n is
+        let c: string = text[i..i + 1]
+        if c == "'" || c == "\"" is
+            let e: int = string_end(text, i)
+            if e < 0 is return "" end
+            i = e + 1
+            continue
+        end
+        if c == opener is
+            depth += 1
+        elsif c == closer is
+            depth -= 1
+            if depth == 0 is return text[open_idx + 1..i] end
+        end
+        i += 1
+    end
+    return ""
+end
+
+;; `key : { ... }` albo `key = { ... }` -> zawartosc klamr; "" gdy brak.
+pub fn extract_balanced(text: string, key: string) -> string is
+    let k: int = find_key(text, key, 0, ":=")
+    if k < 0 is return "" end
+    let v: int = value_start(text, k, key)
+    if v >= text.len() || text[v..v + 1] != "{" is return "" end
+    return balanced_from(text, v, "{", "}")
+end
+
+;; `key : [ ... ]` -> zawartosc nawiasow kwadratowych; "" gdy brak.
+pub fn extract_bracket(text: string, key: string) -> string is
+    let k: int = find_key(text, key, 0, ":=")
+    if k < 0 is return "" end
+    let v: int = value_start(text, k, key)
+    if v >= text.len() || text[v..v + 1] != "[" is return "" end
+    return balanced_from(text, v, "[", "]")
+end
+
+;; ── Literaly tekstowe ───────────────────────────────────────────────────────
+
+;; Wszystkie literaly tekstowe z `text` (odkodowane). `sq` / `dq`
+;; wlaczaja apostrofy / cudzyslowy. Tresc „pl”/„en” na stronie to literaly JS
+;; (apostrofy), „de” to JSON (cudzyslowy) — `quoted(text, true, true)` obsluguje oba.
+pub fn quoted(text: string, sq: bool, dq: bool) -> [string] is
+    let n: int = text.len()
+    let mut res: [string] = []
+    let mut i: int = 0
+    while i < n is
+        let c: string = text[i..i + 1]
+        let is_q: bool = (sq && c == "'") || (dq && c == "\"")
+        if is_q is
+            let e: int = string_end(text, i)
+            if e < 0 is return res end
+            res.push(unescape(text[i + 1..e]))
+            i = e + 1
+        else is
+            i += 1
+        end
+    end
+    return res
+end
+
+;; Wartosc `key : 'tekst'` (quote = "'") albo `key : "tekst"` (quote = "\"") z bloku; "" gdy brak.
+pub fn field(block: string, key: string, quote: string) -> string is
+    let mut pos: int = 0
+    let n: int = block.len()
+    while pos < n is
+        let k: int = find_key(block, key, pos, ":")
+        if k < 0 is return "" end
+        let v: int = value_start(block, k, key)
+        if v < n && block[v..v + 1] == quote is
+            let e: int = string_end(block, v)
+            if e < 0 is return "" end
+            return unescape(block[v + 1..e])
+        end
+        pos = k + 1
+    end
+    return ""
+end
+
+;; Czy pole `key` w ogole wystepuje z wartoscia w danym cudzyslowie.
+pub fn has_field(block: string, key: string, quote: string) -> bool is
+    let mut pos: int = 0
+    let n: int = block.len()
+    while pos < n is
+        let k: int = find_key(block, key, pos, ":")
+        if k < 0 is return false end
+        let v: int = value_start(block, k, key)
+        if v < n && block[v..v + 1] == quote is return true end
+        pos = k + 1
+    end
+    return false
+end
+
+;; Tablica `key : [ "a", "b" ]` z literalami w cudzyslowach.
+pub fn string_array(block: string, key: string) -> [string] is
+    let inner: string = extract_bracket(block, key)
+    return quoted(inner, false, true)
+end
+
+;; Pozycje wszystkich wystapien `key : <quote>` (poczatki kluczy) — do dzielenia
+;; pliku na bloki (kazdy blok = tekst od jednego `id:` do nastepnego).
+pub fn key_positions(text: string, key: string, quote: string) -> [int] is
+    let mut res: [int] = []
+    let n: int = text.len()
+    let mut pos: int = 0
+    while pos < n is
+        let k: int = find_key(text, key, pos, ":")
+        if k < 0 is return res end
+        let v: int = value_start(text, k, key)
+        if v < n && text[v..v + 1] == quote is
+            res.push(k)
+        end
+        pos = k + 1
+    end
+    return res
+end
