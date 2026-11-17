@@ -1,0 +1,13 @@
+use "std -> test" from "test"
+
+fn main() is
+    let a: api::DocSection = api::DocSection { key: "k", title: "Wstep", body: "Tresc", lang_used: "pl", available: true, snippets: ["hacker update"] }
+    let b: api::DocSection = api::DocSection { key: "t", title: "Tools", body: "Eng", lang_used: "en", available: true, snippets: [] }
+    let c: api::DocSection = api::DocSection { key: "g", title: "Gry", body: "", lang_used: "", available: false, snippets: [] }
+    let md: string = exportdoc::render_markdown([a, b, c])
+    assert_true(md.starts_with("# Dokumentacja HackerOS"))
+    assert_true(md.contains("## Wstep\n\nTresc\n\n**Polecenia:**\n\n```\nhacker update\n```"))
+    assert_true(md.contains("tylko w języku angielskim"))
+    assert_true(md.contains("## Gry\n\n_Ta sekcja nie ma jeszcze"))
+    write("export OK")
+end
