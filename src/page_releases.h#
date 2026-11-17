@@ -1,0 +1,144 @@
+mod util
+mod api
+mod net
+mod sysinfo
+mod widgets
+
+use "bit -> gtk" from "gtk"
+
+struct ReleasesPage is
+    pub root:   gtk::ScrolledWindow
+    pub slot:   gtk::Box
+    pub source: gtk::Label
+    pub search: gtk::SearchEntry
+    pub note:   gtk::Label
+end
+
+pub fn build(ctx: widgets::Ctx) -> ReleasesPage is
+    let page: widgets::Page = widgets::page_shell("Wydania",
+        "Pełna historia wersji i changelog HackerOS, pobierane na żywo ze strony projektu.", 12)
+    let body: gtk::Box = page.body
+
+    let note: gtk::Label = widgets::text("", "update-note", true)
+    gtk::set_visible(note.handle, false)
+    gtk::set_margins(note.handle, 0, 12, 0, 0)
+    body.append(note.handle)
+
+    let search: gtk::SearchEntry = gtk::new_search_entry()
+    search.set_placeholder("🔍 Szukaj wydania (np. numer wersji)…")
+    gtk::set_margins(search.handle, 0, 12, 0, 0)
+    body.append(search.handle)
+
+    body.append(widgets::section_label("Historia wersji").handle)
+
+    let source: gtk::Label = widgets::text("", "footer-label", true)
+    gtk::set_margins(source.handle, 4, 8, 0, 0)
+    body.append(source.handle)
+
+    let slot: gtk::Box = gtk::vbox(14)
+    gtk::set_margins(slot.handle, 4, 24, 0, 0)
+    body.append(slot.handle)
+
+    let refresh: gtk::Button = widgets::pill("Odśwież listę wydań", "distro-badge")
+    body.append(refresh.handle)
+
+    let rp: ReleasesPage = ReleasesPage { root: page.root, slot: slot, source: source, search: search, note: note }
+    ctx.app.on_click(refresh, || is populate(ctx, rp) end)
+    populate(ctx, rp)
+    return rp
+end
+
+pub fn refresh_if_stale(ctx: widgets::Ctx, p: ReleasesPage) is
+    if widgets::is_stale(api::path_releases()) is populate(ctx, p) end
+end
+
+pub fn populate(ctx: widgets::Ctx, p: ReleasesPage) is
+    widgets::set_loading(ctx, p.slot, "Pobieranie historii wydań…")
+    p.source.set_text("")
+    let job: net::Job = net::start_get(api::path_releases())
+    widgets::wait_job(ctx, job, |j: net::Job| is
+        let f: net::Fetched = net::finish_fetch(j)
+        let releases: [api::ReleaseEntry] = api::parse_releases(f.text)
+        if !f.ok || releases.len() == 0 is
+            widgets::set_error(ctx, p.slot,
+                "Nie udało się pobrać wydań z HackerOS Website (brak sieci i brak danych w pamięci podręcznej). Sprawdź połączenie z internetem i spróbuj ponownie.",
+                || is populate(ctx, p) end)
+            widgets::notify(ctx, "Błąd pobierania wydań")
+            return
+        end
+
+        widgets::clear_slot(ctx, p.slot)
+        p.source.set_text(widgets::fetch_note(f, api::path_releases(), ""))
+        check_new_version(ctx, p, releases)
+
+        let list: gtk::Box = gtk::vbox(14)
+        p.slot.add_child(list.handle)
+        render_list(ctx, list, releases, "")
+        ctx.app.unwatch(p.search.handle)
+        ctx.app.on_change(p.search.as_entry(), |q: string| is render_list(ctx, list, releases, q) end)
+        widgets::set_status(ctx, "Pobrano " + to_string(releases.len()) + " wydań")
+    end)
+end
+
+;; Porownuje zainstalowana wersje (/etc/xdg/kcm-about-distrorc) z najnowszym wpisem historii.
+fn check_new_version(ctx: widgets::Ctx, p: ReleasesPage, releases: [api::ReleaseEntry]) is
+    let installed_full: string = sysinfo::installed_version()
+    let latest: string = util::extract_version_number(releases[0].version)
+    if installed_full == "" || latest == "" is return end
+    let installed: string = util::extract_version_number(installed_full)
+    if installed != "" && util::compare_versions(latest, installed) > 0 is
+        p.note.set_text("🆕 Dostępna nowa wersja HackerOS: " + releases[0].version + "  (masz zainstalowaną: " + installed_full + ")")
+        gtk::set_visible(p.note.handle, true)
+        gtk::set_visible(ctx.badge.handle, true)
+    else is
+        gtk::set_visible(p.note.handle, false)
+        gtk::set_visible(ctx.badge.handle, false)
+    end
+end
+
+fn render_list(ctx: widgets::Ctx, list: gtk::Box, releases: [api::ReleaseEntry], query: string) is
+    widgets::clear_slot(ctx, list)
+    let q: string = util::lower(util::trim(query))
+    let mut shown: int = 0
+    let mut i: int = 0
+    while i < releases.len() is
+        let rel: api::ReleaseEntry = releases[i]
+        i += 1
+        if q != "" && !(util::lower(rel.version).contains(q) || util::lower(rel.desc).contains(q)) is continue end
+        list.append(release_card(rel).handle)
+        shown += 1
+    end
+    if shown == 0 is
+        list.append(widgets::text("Brak wydań pasujących do wyszukiwania „" + query + "”.", "action-desc", true).handle)
+    end
+end
+
+fn release_card(rel: api::ReleaseEntry) -> gtk::Box is
+    let card: gtk::Box = gtk::vbox(6)
+    gtk::add_css_class(card.handle, "motd-card")
+    card.append(widgets::text(rel.version, "hero-accent", false).handle)
+    if rel.desc != "" is
+        card.append(widgets::text(rel.desc, "hero-subtitle", true).handle)
+    end
+    if rel.dates.len() > 0 is
+        let h: gtk::Label = widgets::text("DATY WYDANIA", "motd-header", false)
+        gtk::set_margins(h.handle, 8, 0, 0, 0)
+        card.append(h.handle)
+        let mut i: int = 0
+        while i < rel.dates.len() is
+            card.append(widgets::text("• " + rel.dates[i], "motd-text", true).handle)
+            i += 1
+        end
+    end
+    if rel.changelog.len() > 0 is
+        let h: gtk::Label = widgets::text("CO NOWEGO", "motd-header", false)
+        gtk::set_margins(h.handle, 8, 0, 0, 0)
+        card.append(h.handle)
+        let mut i: int = 0
+        while i < rel.changelog.len() is
+            card.append(widgets::text("• " + rel.changelog[i], "motd-text", true).handle)
+            i += 1
+        end
+    end
+    return card
+end
