@@ -1,0 +1,85 @@
+mod util
+mod net
+mod widgets
+mod actions
+
+use "bit -> gtk" from "gtk"
+
+;; Punkt wejscia: wolany po kliknieciu chipa zrodla.
+pub fn start_flow(ctx: widgets::Ctx, url: string, suggested_name: string, source_label: string) is
+    widgets::set_status(ctx, "Sprawdzanie źródła: " + source_label + "…")
+    let head: net::Job = net::start_head(url)
+    widgets::wait_job(ctx, head, |j: net::Job| is
+        let ok: bool = net::succeeded(j)
+        let hdrs: string = net::output(j)
+        net::cleanup(j)
+        let ct: string = net::content_type(hdrs)
+        let total: int = net::content_length(hdrs)
+
+        if !ok || ct == "" || ct.starts_with("text/html") is
+            let msg: string = actions::open_link(url, "Otwarto źródło: " + source_label)
+            widgets::set_status(ctx, "Źródło " + source_label + " wymaga przeglądarki (strona pośrednicząca) — otwarto link. " + msg)
+            return
+        end
+
+        widgets::ask_path(ctx, "Zapisz plik z " + source_label,
+                          util::download_dir() + "/" + suggested_name, "Pobierz",
+                          |dest: string| is begin(ctx, url, dest, source_label, total) end)
+    end)
+end
+
+;; Okno postepu + start curl.
+fn begin(ctx: widgets::Ctx, url: string, dest: string, source_label: string, total: int) is
+    let dlg: gtk::Window = gtk::new_window("Pobieranie — " + source_label, 460, 190)
+    dlg.set_transient_for(ctx.win)
+    dlg.set_modal(true)
+
+    let box: gtk::Box = gtk::vbox(14)
+    gtk::set_margin(box.handle, 20)
+    box.append(widgets::text(util::basename(dest), "action-title", true).handle)
+
+    let pbar: gtk::ProgressBar = gtk::new_progress_bar()
+    pbar.set_show_text(true)
+    pbar.set_text("0.0 MB")
+    box.append(pbar.handle)
+
+    let cancel: gtk::Button = widgets::pill("Anuluj", "distro-badge")
+    gtk::set_align(cancel.handle, gtk::align_end(), gtk::align_fill())
+    box.append(cancel.handle)
+    dlg.set_child(box.handle)
+
+    let job: net::Job = net::start_download(url, dest)
+    ctx.app.on_click(cancel, || is net::cancel_download(job) end)
+    dlg.present()
+    widgets::set_status(ctx, "Pobieranie: " + util::basename(dest) + "…")
+    tick(ctx, job, total, pbar, dlg, source_label, dest)
+end
+
+;; Co 300 ms odswieza pasek; po zakonczeniu zamyka okno i raportuje wynik.
+fn tick(ctx: widgets::Ctx, job: net::Job, total: int, pbar: gtk::ProgressBar, dlg: gtk::Window, source_label: string, dest: string) is
+    if net::finished(job) is
+        let ok: bool = net::succeeded(job)
+        let cancelled: bool = net::was_cancelled(job)
+        net::cleanup(job)
+        ctx.app.unwatch_tree(dlg.handle)
+        dlg.destroy()
+        if ok is
+            widgets::notify(ctx, "Pobrano: " + util::basename(dest))
+        elsif cancelled is
+            widgets::notify(ctx, "Pobieranie anulowane.")
+        else is
+            widgets::notify(ctx, "Pobieranie przerwane lub nieudane (" + source_label + ").")
+        end
+        return
+    end
+
+    let got: int = net::bytes_so_far(job)
+    if total > 0 is
+        pbar.set_fraction((got + 0.0) / (total + 0.0))
+        pbar.set_text(util::format_mb(got) + " / " + util::format_mb(total))
+    else is
+        pbar.pulse()
+        pbar.set_text(util::format_mb(got))
+    end
+    ctx.app.after(300, || is tick(ctx, job, total, pbar, dlg, source_label, dest) end)
+end
