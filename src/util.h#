@@ -1,0 +1,298 @@
+use "std -> strings" from "strings"
+use "std -> fs" from "fs"
+use "std -> env" from "env"
+use "std -> conv" from "conv"
+use "std -> process" from "proc"
+
+;; ── Wersja ──────────────────────────────────────────────────────────────────
+
+;; Jedno zrodlo prawdy dla numeru wersji (widgets::app_version i net::user_agent
+;; korzystaja z tego; zmieniaj razem z `version` w Bit.hk).
+pub fn app_version() -> string is return "0.9.0" end
+
+;; ── Powloka ─────────────────────────────────────────────────────────────────
+
+;; Bezpieczne ujecie argumentu w apostrofy dla `sh -c`: ' -> '\''.
+;; Wszystko, co pochodzi z sieci / pliku (URL-e, sciezki), MUSI przez to przejsc.
+pub fn shq(s: string) -> string is
+    return "'" + strings::replace_all(s, "'", "'\\''") + "'"
+end
+
+;; Ucieka znaki specjalne wyrazen regularnych (dla `pkill -f` i podobnych),
+;; zeby sciezka pliku byla traktowana doslownie.
+pub fn regex_escape(s: string) -> string is
+    let specials: [string] = ["\\", ".", "[", "]", "(", ")", "*", "+", "?", "{", "}", "|", "^", "$"]
+    let mut r: string = s
+    let mut i: int = 0
+    while i < specials.len() is
+        r = strings::replace_all(r, specials[i], "\\" + specials[i])
+        i += 1
+    end
+    return r
+end
+
+;; Czy to wyglada na bezpieczny adres http(s)?
+pub fn is_http_url(u: string) -> bool is
+    if !(u.starts_with("https://") || u.starts_with("http://")) is return false end
+    if u.contains(" ") || u.contains("\n") || u.contains("\r") || u.contains("\t") is return false end
+    return true
+end
+
+;; ── Napisy ──────────────────────────────────────────────────────────────────
+
+;; Indeks pierwszego wystapienia `sub` w `s` od pozycji `start` (bajty), albo -1.
+pub fn find_from(s: string, sub: string, start: int) -> int is
+    let n: int = s.len()
+    if start < 0 || start > n is return -1 end
+    if sub.len() == 0 is return start end
+    let rest: string = s[start..n]
+    ;; `split` dziala identycznie w interpreterze i w kompilatorze LLVM; indeks
+    ;; pierwszego wystapienia to dlugosc czesci przed nim.
+    let parts: [string] = strings::split(rest, sub)
+    if parts.len() < 2 is return -1 end
+    return start + parts[0].len()
+end
+
+;; Hex ("0041" / "00e9") -> liczba; 0 gdy napis zawiera znak spoza 0-9a-f.
+pub fn hex_value(hex: string) -> int is
+    let digits: string = "0123456789abcdef"
+    let low: string = strings::to_lower(hex)
+    let mut r: int = 0
+    let mut i: int = 0
+    while i < low.len() is
+        let idx: int = find_from(digits, low[i..i + 1], 0)
+        if idx < 0 is return 0 end
+        r = r * 16 + idx
+        i += 1
+    end
+    return r
+end
+
+pub fn trim(s: string) -> string is
+    return strings::trim(s)
+end
+
+pub fn lower(s: string) -> string is
+    return strings::to_lower(s)
+end
+
+pub fn upper(s: string) -> string is
+    return strings::to_upper(s)
+end
+
+;; Wartosc po prefiksie `key` (np. "Variant=") w pierwszej pasujacej linii pliku
+;; w stylu KEY=VALUE; "" gdy brak.
+pub fn kv_lookup(text: string, key: string) -> string is
+    let lines: [string] = strings::split(text, "\n")
+    let mut i: int = 0
+    while i < lines.len() is
+        if lines[i].starts_with(key) is
+            let l: string = lines[i]
+            return strings::trim(l[key.len()..l.len()])
+        end
+        i += 1
+    end
+    return ""
+end
+
+;; Jest to znak „slowny” ASCII (litera/cyfra/_)?  Dla bajtow >= 0x80 (UTF-8) tez
+;; zwraca true — litery spoza ASCII traktujemy jak czesc slowa.
+pub fn is_word_byte(c: string) -> bool is
+    if c.len() == 0 is return false end
+    let alnum: string = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+    if alnum.contains(c) is return true end
+    let code: int = conv::char_to_int(c)
+    return code >= 128
+end
+
+;; Zamienia kazdy `from` na `to`.
+pub fn replace_all(s: string, old: string, new_s: string) -> string is
+    return strings::replace_all(s, old, new_s)
+end
+
+;; ── Liczby / formatowanie ───────────────────────────────────────────────────
+
+;; f64 z jedna cyfra po przecinku, np. 3.14 -> "3.1" (bez zaleznosci od printf).
+pub fn fmt1(x: f64) -> string is
+    let mut neg: bool = false
+    let mut v: f64 = x
+    if v < 0.0 is
+        neg = true
+        v = 0.0 - v
+    end
+    let scaled: int = conv::float_to_int(v * 10.0 + 0.5)
+    let whole: int = scaled / 10
+    let frac: int = scaled % 10
+    let body: string = to_string(whole) + "." + to_string(frac)
+    if neg is return "-" + body end
+    return body
+end
+
+;; Jak printf("%.0f"): zaokraglenie do calosci.
+pub fn fmt0(x: f64) -> string is
+    let n: int = conv::float_to_int(x + 0.5)
+    return to_string(n)
+end
+
+;; Bajty -> "12.3 GB" albo "512 MB" (identycznie jak format_bytes w wersji Vala).
+pub fn format_bytes(n_bytes: int) -> string is
+    let gb: f64 = (n_bytes + 0.0) / 1073741824.0
+    if gb >= 1.0 is
+        return fmt1(gb) + " GB"
+    end
+    let mb: f64 = (n_bytes + 0.0) / 1048576.0
+    return fmt0(mb) + " MB"
+end
+
+;; Bajty -> "12.3 MB" (do paska postepu pobierania; zawsze MB, jak w wersji Vala).
+pub fn format_mb(n_bytes: int) -> string is
+    return fmt1((n_bytes + 0.0) / 1048576.0) + " MB"
+end
+
+;; Sekundy -> "3 d 4 godz." / "5 godz. 12 min" / "42 min".
+pub fn format_duration(seconds: int) -> string is
+    let days: int = seconds / 86400
+    let hours: int = (seconds % 86400) / 3600
+    let minutes: int = (seconds % 3600) / 60
+    if days > 0 is
+        return to_string(days) + " d " + to_string(hours) + " godz."
+    end
+    if hours > 0 is
+        return to_string(hours) + " godz. " + to_string(minutes) + " min"
+    end
+    return to_string(minutes) + " min"
+end
+
+;; Pierwsza grupa cyfr/kropek z tekstu, np. "HackerOS 1.2.3 (beta)" -> "1.2.3".
+pub fn extract_version_number(s: string) -> string is
+    let digits: string = "0123456789"
+    let n: int = s.len()
+    let mut i: int = 0
+    while i < n && !digits.contains(s[i..i + 1]) is
+        i += 1
+    end
+    if i >= n is return "" end
+    let mut j: int = i
+    while j < n && (digits.contains(s[j..j + 1]) || s[j..j + 1] == ".") is
+        j += 1
+    end
+    ;; odetnij koncowe kropki ("1.2." -> "1.2")
+    while j > i && s[j - 1..j] == "." is
+        j -= 1
+    end
+    return s[i..j]
+end
+
+;; Porownanie wersji "a.b.c": <0, 0, >0 (brakujace skladniki = 0).
+pub fn compare_versions(a: string, b: string) -> int is
+    let pa: [string] = strings::split(a, ".")
+    let pb: [string] = strings::split(b, ".")
+    let mut len: int = pa.len()
+    if pb.len() > len is len = pb.len() end
+    let mut i: int = 0
+    while i < len is
+        let mut va: int = 0
+        let mut vb: int = 0
+        if i < pa.len() is va = conv::str_to_int(pa[i]) end
+        if i < pb.len() is vb = conv::str_to_int(pb[i]) end
+        if va != vb is return va - vb end
+        i += 1
+    end
+    return 0
+end
+
+;; ── Pliki ───────────────────────────────────────────────────────────────────
+
+pub fn home() -> string is
+    let h: string = env::get("HOME")
+    if h == "" is return "/tmp" end
+    return h
+end
+
+;; Odczyt calego pliku albo `fallback`, gdy go nie ma.
+pub fn read_or(path: string, fallback: string) -> string is
+    if !fs::exists(path) is return fallback end
+    ;; pliki w /proc i /sys maja rozmiar 0 — `fs::read` (czytajacy wg rozmiaru) zwraca z nich "" (RAM „? / ?”, uptime „Nieznany”),
+    ;; wiec czytamy je przez `cat`
+    if path.starts_with("/proc/") || path.starts_with("/sys/") is
+        let t: string = proc::run("cat " + shq(path) + " 2>/dev/null")
+        if t == "" is return fallback end
+        return t
+    end
+    return fs::read(path)
+end
+
+pub fn mkdir_p(path: string) is
+    if fs::exists(path) is return end
+    ;; tworzy kolejne skladniki sciezki (np. ~/.cache/HackerOS/hackeros-welcome);
+    ;; sam `fs::mkdir` nie gwarantuje tworzenia katalogow posrednich
+    let is_abs: bool = path.starts_with("/")
+    let parts: [string] = strings::split(path, "/")
+    let mut cur: string = ""
+    let mut i: int = 0
+    while i < parts.len() is
+        let p: string = parts[i]
+        i += 1
+        if p == "" is continue end
+        if cur == "" && !is_abs is
+            cur = p
+        else is
+            cur = cur + "/" + p
+        end
+        if !fs::exists(cur) is fs::mkdir(cur) end
+    end
+end
+
+;; Zamienia znaki niedozwolone w nazwie pliku (jak key_to_path w wersji Vala).
+pub fn safe_name(key: string) -> string is
+    let mut r: string = key
+    r = strings::replace_all(r, "/", "_")
+    r = strings::replace_all(r, "?", "_")
+    r = strings::replace_all(r, ":", "_")
+    r = strings::replace_all(r, "&", "_")
+    r = strings::replace_all(r, "=", "_")
+    return r
+end
+
+;; Sciezka z `~/` rozwinieta do katalogu domowego.
+pub fn expand_home(p: string) -> string is
+    if p == "~" is return home() end
+    if p.starts_with("~/") is return home() + "/" + p[2..p.len()] end
+    return p
+end
+
+;; ── Czas lokalny ────────────────────────────────────────────────────────────
+;; `time::format` formatuje w UTC, a UI ma pokazywac czas lokalny (jak w wersji
+;; Vala) — pytamy wiec `date` (krotkie, nieblokujace odczuwalnie).
+
+;; Unix-timestamp -> tekst w czasie lokalnym wg formatu `date` (np. "%d.%m.%Y %H:%M").
+pub fn local_time(ts: int, fmt: string) -> string is
+    return strings::trim(proc::run("date -d @" + to_string(ts) + " " + shq("+" + fmt)))
+end
+
+pub fn now_local(fmt: string) -> string is
+    return strings::trim(proc::run("date " + shq("+" + fmt)))
+end
+
+;; Napis -> int (0 gdy nie jest liczba).
+pub fn to_int(s: string) -> int is
+    return conv::str_to_int(strings::trim(s))
+end
+
+;; Usuwa plik, jesli istnieje (bez bledu, gdy go nie ma).
+pub fn remove_quiet(path: string) is
+    if fs::exists(path) is fs::remove(path) end
+end
+
+;; Katalog pobran: ~/Downloads, jesli istnieje, w przeciwnym razie katalog domowy.
+pub fn download_dir() -> string is
+    let d: string = home() + "/Downloads"
+    if fs::is_dir(d) is return d end
+    return home()
+end
+
+;; Ostatni skladnik sciezki ("/a/b/c.iso" -> "c.iso").
+pub fn basename(p: string) -> string is
+    let parts: [string] = strings::split(p, "/")
+    return parts[parts.len() - 1]
+end
