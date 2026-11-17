@@ -1,0 +1,143 @@
+mod util
+mod net
+
+use "std -> fs" from "fs"
+use "std -> sys" from "sys"
+use "std -> strings" from "strings"
+
+struct SystemStatus is
+    pub disk_used:     string
+    pub disk_total:    string
+    pub disk_fraction: f64
+    pub ram_used:      string
+    pub ram_total:     string
+    pub ram_fraction:  f64
+    pub uptime:        string
+end
+
+;; ── /proc/meminfo ───────────────────────────────────────────────────────────
+
+;; "MemTotal:       16384000 kB" -> 16384000
+pub fn parse_meminfo_kb(line: string) -> int is
+    let parts: [string] = strings::split(line, ":")
+    if parts.len() < 2 is return 0 end
+    let toks: [string] = strings::split_whitespace(parts[1])
+    if toks.len() < 1 is return 0 end
+    return util::to_int(toks[0])
+end
+
+;; (calkowita, dostepna) pamiec w kB z tekstu /proc/meminfo
+pub fn meminfo_values(text: string) -> [int] is
+    let lines: [string] = strings::split(text, "\n")
+    let mut total: int = 0
+    let mut avail: int = 0
+    let mut i: int = 0
+    while i < lines.len() is
+        if lines[i].starts_with("MemTotal:") is total = parse_meminfo_kb(lines[i]) end
+        if lines[i].starts_with("MemAvailable:") is avail = parse_meminfo_kb(lines[i]) end
+        i += 1
+    end
+    return [total, avail]
+end
+
+;; ── apt ─────────────────────────────────────────────────────────────────────
+
+;; Liczba pakietow z wyjscia `apt list --upgradable` (bez linii "Listing...").
+pub fn parse_apt(output: string) -> int is
+    let lines: [string] = strings::split(output, "\n")
+    let mut count: int = 0
+    let mut i: int = 0
+    while i < lines.len() is
+        let l: string = strings::trim(lines[i])
+        i += 1
+        if l == "" is continue end
+        if l.starts_with("Listing...") || l.starts_with("Wylistowywanie") is continue end
+        if l.starts_with("WARNING") || l.starts_with("Warning") is continue end
+        count += 1
+    end
+    return count
+end
+
+;; Uruchamia sprawdzanie aktualizacji w tle.
+pub fn start_apt_check() -> net::Job is
+    return net::start_cmd("apt-check", "apt list --upgradable 2>/dev/null")
+end
+
+;; ── Uptime ──────────────────────────────────────────────────────────────────
+
+;; "12345.67 54321.00" -> 12345
+pub fn parse_uptime_seconds(text: string) -> int is
+    let toks: [string] = strings::split_whitespace(text)
+    if toks.len() < 1 is return -1 end
+    let whole: [string] = strings::split(toks[0], ".")
+    return util::to_int(whole[0])
+end
+
+;; ── Zbieranie ───────────────────────────────────────────────────────────────
+
+pub fn collect() -> SystemStatus is
+    ;; dysk (/)
+    let mut disk_used: string = "?"
+    let mut disk_total: string = "?"
+    let mut disk_frac: f64 = 0.0
+    let total: int = sys::disk_total("/")
+    let free: int = sys::disk_free("/")
+    if total > 0 is
+        let mut used: int = 0
+        if total > free is used = total - free end
+        disk_used = util::format_bytes(used)
+        disk_total = util::format_bytes(total)
+        disk_frac = (used + 0.0) / (total + 0.0)
+    end
+
+    ;; RAM
+    let mut ram_used: string = "?"
+    let mut ram_total: string = "?"
+    let mut ram_frac: f64 = 0.0
+    let mi: [int] = meminfo_values(util::read_or("/proc/meminfo", ""))
+    if mi[0] > 0 is
+        let mut used_kb: int = 0
+        if mi[0] > mi[1] is used_kb = mi[0] - mi[1] end
+        ram_used = util::format_bytes(used_kb * 1024)
+        ram_total = util::format_bytes(mi[0] * 1024)
+        ram_frac = (used_kb + 0.0) / (mi[0] + 0.0)
+    end
+
+    ;; uptime
+    let mut up: string = "Nieznany"
+    let secs: int = parse_uptime_seconds(util::read_or("/proc/uptime", ""))
+    if secs >= 0 is up = util::format_duration(secs) end
+
+    return SystemStatus {
+        disk_used: disk_used, disk_total: disk_total, disk_fraction: disk_frac,
+        ram_used: ram_used, ram_total: ram_total, ram_fraction: ram_frac,
+        uptime: up,
+    }
+end
+
+;; ── Informacje o systemie (strona „O systemie”) ─────────────────────────────
+
+;; Wariant dystrybucji z /etc/xdg/kcm-about-distrorc ("Standard" gdy brak).
+pub fn distro_variant() -> string is
+    let v: string = util::kv_lookup(util::read_or("/etc/xdg/kcm-about-distrorc", ""), "Variant=")
+    if v == "" is return "Standard" end
+    return v
+end
+
+;; Zainstalowana wersja z tego samego pliku ("" gdy brak).
+pub fn installed_version() -> string is
+    return util::kv_lookup(util::read_or("/etc/xdg/kcm-about-distrorc", ""), "Version=")
+end
+
+;; Trzeci token /proc/version ("Linux version 6.1.0 ..." -> "6.1.0").
+pub fn kernel_version() -> string is
+    let parts: [string] = strings::split_whitespace(util::read_or("/proc/version", ""))
+    if parts.len() >= 3 is return parts[2] end
+    return "Nieznane"
+end
+
+pub fn arch() -> string is
+    let a: string = strings::trim(sys::machine())
+    if a == "" is return "x86_64" end
+    return a
+end
