@@ -1,0 +1,96 @@
+fn r(selector: string, decls: string) -> string is
+    return selector + " " + "{" + " " + decls + " " + "}" + "\n"
+end
+
+pub fn stylesheet() -> string is
+    let mut c: string = ""
+
+    ;; ── Global ──
+    c = c + r("window, .window-frame", "background-color: #0d0d0f; color: #e8e8ec;")
+
+    ;; ── Header bar ──
+    c = c + r("headerbar", "background-color: #111115; border-bottom: 1px solid rgba(255,255,255,0.08); box-shadow: 0 1px 0 rgba(255,255,255,0.04); min-height: 48px;")
+    c = c + r("headerbar .title", "font-size: 15px; font-weight: 700; letter-spacing: 0.05em; color: #e8e8ec;")
+    c = c + r("headerbar .subtitle", "font-size: 11px; color: #8888a0;")
+
+    ;; ── Sidebar ──
+    c = c + r(".sidebar", "background-color: #111115; border-right: 1px solid rgba(255,255,255,0.06); padding: 12px 0;")
+    c = c + r(".sidebar-item", "background: transparent; border: none; border-radius: 8px; color: #8888a0; font-size: 13px; font-weight: 500; padding: 10px 16px; margin: 2px 8px; transition: all 0.15s ease;")
+    c = c + r(".sidebar-item label", "color: #8888a0;")
+    c = c + r(".sidebar-item:hover", "background-color: rgba(255,255,255,0.06); color: #c8c8d8;")
+    c = c + r(".sidebar-item:hover label", "color: #c8c8d8;")
+    c = c + r(".sidebar-item.active", "background-color: rgba(255,255,255,0.08); color: #e8e8ec; border-left: 3px solid #aaaaaa; border-radius: 0 8px 8px 0; margin-left: 0; padding-left: 21px;")
+    c = c + r(".sidebar-item.active label", "color: #e8e8ec;")
+    c = c + r(".sidebar-section-label", "font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #555566; padding: 14px 16px 4px 16px;")
+    c = c + r(".sidebar-separator", "background-color: rgba(255,255,255,0.05); margin: 8px 12px;")
+
+    ;; ── Content ──
+    c = c + r(".content-area", "background-color: #0d0d0f;")
+
+    ;; ── MOTD / karty ──
+    c = c + r(".motd-card", "background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 50%, rgba(0,0,0,0) 100%); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;")
+    c = c + r(".motd-header", "font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: #aaaaaa; margin-bottom: 8px;")
+    c = c + r(".motd-text", "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; color: #a0a0b0; line-height: 1.7;")
+    c = c + r(".motd-tip-label", "font-size: 11px; color: #555566; font-style: italic; margin-top: 6px;")
+
+    ;; ── Hero ──
+    c = c + r(".hero-title", "font-size: 36px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;")
+    c = c + r(".hero-accent", "font-size: 36px; font-weight: 800; color: #cccccc; letter-spacing: -0.02em;")
+    c = c + r(".hero-subtitle", "font-size: 15px; margin-top: 6px; color: #888899;")
+    c = c + r(".distro-badge", "background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; color: #aaaaaa;")
+
+    ;; ── Karty akcji ──
+    c = c + r(".action-card", "background-color: #16161c; border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 18px 16px; transition: all 0.18s ease;")
+    c = c + r(".action-card:hover", "background-color: #1e1e26; border-color: rgba(255,255,255,0.18); box-shadow: 0 4px 16px rgba(0,0,0,0.3);")
+    c = c + r(".action-card:active", "background-color: rgba(255,255,255,0.05);")
+    c = c + r(".action-icon", "color: #bbbbbb;")
+    c = c + r(".action-title", "font-size: 14px; font-weight: 600; color: #dddde8;")
+    c = c + r(".action-desc", "font-size: 12px; color: #606078; margin-top: 2px;")
+
+    ;; ── Chipy zrodel ──
+    c = c + r(".chip-btn", "background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; color: #cccccc; min-height: 0;")
+    c = c + r(".chip-btn:hover", "background-color: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.28); color: #ffffff;")
+    c = c + r(".chip-btn:disabled", "opacity: 0.35;")
+
+    ;; ── Czytnik dokumentacji ──
+    c = c + r(".doc-list", "background-color: transparent;")
+    c = c + r(".doc-list row", "border-radius: 6px;")
+    c = c + r(".doc-list row:hover", "background-color: rgba(255,255,255,0.05);")
+    c = c + r(".doc-list row:selected", "background-color: rgba(255,255,255,0.12);")
+
+    ;; ── Znaczniki ──
+    c = c + r(".nav-badge", "color: #ff5c5c; font-size: 9px; margin-left: 4px;")
+    c = c + r(".code-row", "background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 8px 12px; margin-top: 4px;")
+    c = c + r(".code-text", "font-family: monospace; font-size: 12px; color: #9fe870;")
+    c = c + r(".update-note", "background-color: rgba(255, 200, 80, 0.10); border: 1px solid rgba(255, 200, 80, 0.30); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #ffcf6a;")
+    c = c + r(".section-title", "font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #555566; margin-bottom: 10px; margin-top: 4px;")
+    c = c + r(".footer-label", "font-size: 12px; color: #444455;")
+
+    ;; ── Pasek stanu ──
+    c = c + r(".status-bar", "background-color: #080810; border-top: 1px solid rgba(255,255,255,0.05); padding: 6px 16px;")
+    c = c + r(".status-text", "font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #aaaaaa;")
+    c = c + r(".status-dot", "color: #888888;")
+
+    ;; ── Ogolne ──
+    c = c + r("scrolledwindow", "background-color: transparent;")
+    c = c + r("scrolledwindow undershoot, scrolledwindow overshoot", "background: none;")
+    c = c + r("separator", "background-color: rgba(255,255,255,0.05);")
+    c = c + r("label", "color: #e8e8ec;")
+    c = c + r("label.action-desc, label.footer-label, label.section-title, label.motd-header, label.status-text", "color: inherit;")
+    ;; Nadpisania klas po regule `label`: kolory z klas maja pierwszenstwo (jak w libadwaita)
+    c = c + r("label.hero-accent", "color: #cccccc;")
+    c = c + r("label.action-desc", "color: #606078;")
+    c = c + r("label.footer-label", "color: #444455;")
+    c = c + r("label.section-title", "color: #555566;")
+    c = c + r("label.motd-header", "color: #aaaaaa;")
+    c = c + r("label.motd-text", "color: #a0a0b0;")
+    c = c + r("label.code-text", "color: #9fe870;")
+    c = c + r("label.status-text", "color: #aaaaaa;")
+    c = c + r("label.update-note", "color: #ffcf6a;")
+    c = c + r("label.nav-badge", "color: #ff5c5c;")
+    c = c + r("label.action-title", "color: #dddde8;")
+    c = c + r("label.distro-badge", "color: #aaaaaa;")
+    c = c + r("button.distro-badge", "color: #aaaaaa;")
+    c = c + r("label.hero-subtitle", "color: #888899;")
+    return c
+end
