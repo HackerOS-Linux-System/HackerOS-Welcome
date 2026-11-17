@@ -1,0 +1,75 @@
+use "std -> test" from "test"
+use "std -> strings" from "strings"
+
+fn jb(s: string) -> string is
+    return strings::replace_all(strings::replace_all(s, "@(", "{"), "@)", "}")
+end
+
+fn main() is
+    ;; ── jsparse ──
+    assert_eq(jsparse::unescape("a\\nb\\'c\\\\d"), "a\nb'c\\d")
+    assert_eq(jsparse::unescape("x\\u0041y"), "xAy")
+    assert_eq(jsparse::html_strip("<p>Hello&nbsp;<b>world</b> &amp; &lt;co&gt;</p>"), "Hello world & <co>")
+    let q: [string] = jsparse::quoted("a: 'one', b: \"two\", c: 'it\\'s'", true, true)
+    assert_eq(q.len(), 3)
+    assert_eq(q[0], "one")
+    assert_eq(q[1], "two")
+    assert_eq(q[2], "it's")
+    let brace_open: string = "{"
+    let brace_close: string = "}"
+    let src_b: string = "x = " + brace_open + " a: '" + brace_close + "', b: " + brace_open + " c: 1 " + brace_close + " " + brace_close + " tail"
+    assert_eq(jsparse::extract_balanced(src_b, "x"), " a: '" + brace_close + "', b: " + brace_open + " c: 1 " + brace_close + " ")
+    assert_eq(jsparse::extract_balanced("foo: 1", "foo"), "")
+    assert_eq(jsparse::extract_bracket("tabs: ['a', 'b']", "tabs"), "'a', 'b'")
+    assert_eq(jsparse::field("name : 'Gamer', id:'g'", "id", "'"), "g")
+    assert_eq(jsparse::field("video: 'no'", "id", "'"), "")
+
+    ;; ── edycje ──
+    let ed_js: string = jb("const EDITIONS = [\n  @( id: 'standard', name: 'Standard', img: 'img/s.png', sf: 'https://sf/s.iso', mega: '', drive: 'https://d/s' @),\n  @( id: 'gamer', name: 'Gamer', sf: 'https://sf/g.iso', actions: 'https://gh/a' @),\n  @( id: 'soon' @)\n];")
+    let eds: [api::Edition] = api::parse_editions(ed_js)
+    assert_eq(eds.len(), 3)
+    assert_eq(eds[0].name, "Standard")
+    assert_eq(eds[0].sf, "https://sf/s.iso")
+    assert_eq(eds[0].mega, "")
+    assert_eq(eds[1].actions, "https://gh/a")
+    assert_eq(eds[2].name, "soon")
+    assert_true(api::edition_has_any_link(eds[0]))
+    assert_true(!api::edition_has_any_link(eds[2]))
+
+    ;; ── wydania ──
+    let rel_js: string = jb("releases: [ @( version: \"1.2.0\", desc: \"Big one\", dates: [\"2025-01-01\", \"2025-02-02\"], changelog: [\"Fix A\", \"Add \\\"B\\\"\"] @), @( version: \"1.1.0\", desc: \"\", dates: [], changelog: [\"Init\"] @) ]")
+    let rels: [api::ReleaseEntry] = api::parse_releases(rel_js)
+    assert_eq(rels.len(), 2)
+    assert_eq(rels[0].version, "1.2.0")
+    assert_eq(rels[0].dates.len(), 2)
+    assert_eq(rels[0].changelog[1], "Add \"B\"")
+    assert_eq(rels[1].dates.len(), 0)
+
+    ;; ── dokumentacja ──
+    let engine: string = jb("const TAB_KEYS = ['introduction', 'tools', 'gaming'];")
+    let docs: string = jb("const T = @( pl: @( tabs: ['Wstep', 'Narzedzia', 'Gry'], content: @( introduction: @( h2: 'Wstep', p1: '<p>Witaj w <b>HackerOS</b>.</p>', p2: 'Uruchom <code>hacker update</code> i <code>hacker update</code>.' @), tools: @( @) @) @), en: @( content: @( tools: @( h2: 'Tools', p: 'English only' @), gaming: @( h2: 'Gaming', p: 'Play ((games))' @) @) @) @);")
+    let secs: [api::DocSection] = api::build_docs(engine, docs, "pl")
+    assert_eq(secs.len(), 3)
+    assert_eq(secs[0].key, "introduction")
+    assert_eq(secs[0].title, "Wstep")
+    assert_eq(secs[0].lang_used, "pl")
+    assert_eq(secs[0].snippets.len(), 1)
+    assert_eq(secs[0].snippets[0], "hacker update")
+    assert_true(secs[0].body.contains("Witaj w HackerOS ."))
+    assert_eq(secs[1].lang_used, "en")
+    assert_eq(secs[1].title, "Tools")
+    assert_eq(secs[2].body, "Play ((games))")
+    let fallback: [api::DocSection] = api::build_docs("", docs, "pl")
+    assert_eq(fallback.len(), 13)
+    assert_true(!fallback[3].available)
+    assert_eq(api::build_docs("", "", "pl").len(), 0)
+
+    ;; ── galeria ──
+    let gj: string = jb("[@(\"src\": \"gallery/a.png\", \"caption\": \"Pulpit\"@), @(\"src\": \"gallery/b.png\"@)]")
+    let g: [api::GalleryImage] = api::parse_gallery(gj)
+    assert_eq(g.len(), 2)
+    assert_eq(g[0].caption, "Pulpit")
+    assert_eq(g[1].caption, "")
+    assert_eq(api::parse_gallery("<html>404</html>").len(), 0)
+    write("api OK")
+end
