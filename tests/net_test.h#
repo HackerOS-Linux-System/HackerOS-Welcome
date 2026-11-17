@@ -1,0 +1,31 @@
+use "std -> test" from "test"
+use "std -> time" from "time"
+
+fn main() is
+    let h: string = "HTTP/1.1 302 Found\r\nLocation: x\r\nContent-Type: text/html\r\n\r\nHTTP/2 200\r\ncontent-type: application/x-iso9660-image; charset=binary\r\nContent-Length: 4194304\r\n\r\n"
+    assert_eq(net::content_type(h), "application/x-iso9660-image")
+    assert_eq(net::content_length(h), 4194304)
+    assert_eq(net::content_length("HTTP/1.1 200 OK\r\n\r\n"), -1)
+    assert_eq(net::user_agent(), "HackerOS-Welcome/" + util::app_version())
+
+    let job: net::Job = net::start_cmd("t", "echo hello; echo world")
+    let mut waited: int = 0
+    while !net::finished(job) && waited < 50 is
+        time::sleep_ms(100)
+        waited += 1
+    end
+    assert_true(net::finished(job))
+    assert_true(net::succeeded(job))
+    assert_eq(net::output(job), "hello\nworld\n")
+    net::cleanup(job)
+
+    let bad: net::Job = net::start_cmd("t2", "exit 3")
+    waited = 0
+    while !net::finished(bad) && waited < 50 is
+        time::sleep_ms(100)
+        waited += 1
+    end
+    assert_true(!net::succeeded(bad))
+    net::cleanup(bad)
+    write("net OK")
+end
