@@ -1,0 +1,106 @@
+mod util
+mod motd
+mod sysinfo
+mod widgets
+
+use "bit -> gtk" from "gtk"
+
+pub fn build(ctx: widgets::Ctx) -> gtk::ScrolledWindow is
+    let page: widgets::Page = widgets::page_shell("", "", 0)
+    ;; Hero ma wlasny uklad (tytul w trzech etykietach), wiec zaczynamy od czystego body.
+    page.body.clear()
+    let body: gtk::Box = page.body
+
+    ;; ── Hero ──
+    let hero: gtk::Box = gtk::vbox(6)
+    gtk::set_margins(hero.handle, 0, 24, 0, 0)
+
+    let title_row: gtk::Box = gtk::hbox(0)
+    gtk::set_align(title_row.handle, gtk::align_fill(), gtk::align_center())
+    title_row.append(widgets::text("Witaj w ", "hero-title", false).handle)
+    title_row.append(widgets::text("HackerOS", "hero-accent", false).handle)
+    title_row.append(widgets::text("!", "hero-title", false).handle)
+    hero.append(title_row.handle)
+
+    let badge: gtk::Label = widgets::text("Wariant: " + sysinfo::distro_variant(), "distro-badge", false)
+    gtk::set_margins(badge.handle, 4, 0, 0, 0)
+    hero.append(badge.handle)
+    hero.append(widgets::text("Twój system jest gotowy. Poniżej znajdziesz szybki dostęp do najważniejszych funkcji.", "hero-subtitle", true).handle)
+    body.append(hero.handle)
+
+    ;; ── MOTD ──
+    let message: string = motd::load()
+    if message != "" is
+        let card: gtk::Box = gtk::vbox(8)
+        gtk::add_css_class(card.handle, "motd-card")
+        gtk::set_margins(card.handle, 0, 24, 0, 0)
+        card.append(widgets::text("// WIADOMOŚĆ DNIA", "motd-header", false).handle)
+        let t: gtk::Label = widgets::text(message, "motd-text", true)
+        t.set_selectable(true)
+        card.append(t.handle)
+        body.append(card.handle)
+    end
+
+    ;; ── Szybkie akcje ──
+    body.append(widgets::section_label("Szybkie akcje").handle)
+    let grid: gtk::Grid = gtk::new_grid()
+    grid.set_column_spacing(12)
+    grid.set_row_spacing(12)
+    grid.set_column_homogeneous(true)
+    gtk::set_margins(grid.handle, 8, 24, 0, 0)
+
+    let c1: gtk::Button = widgets::action_card("web-browser-symbolic", "Strona HackerOS", "Odwiedź oficjalną stronę projektu")
+    widgets::bind_action(ctx, c1, "website")
+    grid.attach(c1.handle, 0, 0, 1, 1)
+
+    let c2: gtk::Button = widgets::action_card("accessories-text-editor-symbolic", "Dokumentacja", "Pełna dokumentacja systemu HackerOS")
+    widgets::bind_action(ctx, c2, "docs")
+    grid.attach(c2.handle, 1, 0, 1, 1)
+
+    let c3: gtk::Button = widgets::action_card("utilities-terminal-symbolic", "Dokumentacja narzędzi", "Narzędzia i skrypty HackerOS")
+    widgets::bind_action(ctx, c3, "tools_docs")
+    grid.attach(c3.handle, 2, 0, 1, 1)
+
+    let c4: gtk::Button = widgets::action_card("system-software-install-symbolic", "Sklep z aplikacjami", "Przeglądaj i instaluj oprogramowanie")
+    widgets::bind_action(ctx, c4, "software")
+    grid.attach(c4.handle, 0, 1, 1, 1)
+
+    let c5: gtk::Button = widgets::action_card("software-update-available-symbolic", "Aktualizuj system", "Pobierz najnowsze aktualizacje HackerOS")
+    widgets::bind_action(ctx, c5, "update")
+    grid.attach(c5.handle, 1, 1, 1, 1)
+
+    let c6: gtk::Button = widgets::action_card("dialog-warning-symbolic", "Zgłoś błąd", "Pomóż nam ulepszać HackerOS")
+    widgets::bind_action(ctx, c6, "bug")
+    grid.attach(c6.handle, 2, 1, 1, 1)
+
+    let c7: gtk::Button = widgets::action_card("folder-download-symbolic", "Pobierz HackerOS", "Wszystkie edycje systemu do pobrania")
+    widgets::bind_action(ctx, c7, "download")
+    grid.attach(c7.handle, 0, 2, 1, 1)
+
+    let c8: gtk::Button = widgets::action_card("document-properties-symbolic", "Wydania", "Historia wersji i changelog")
+    widgets::bind_action(ctx, c8, "changelog")
+    grid.attach(c8.handle, 1, 2, 1, 1)
+
+    body.append(grid.handle)
+
+    ;; ── Spolecznosc ──
+    body.append(widgets::section_label("Społeczność").handle)
+    let community: gtk::Box = gtk::hbox(12)
+    community.set_homogeneous(true)
+    gtk::set_margins(community.handle, 8, 8, 0, 0)
+
+    let s1: gtk::Button = widgets::action_card("chat-message-new-symbolic", "X / Twitter", "Obserwuj @hackeros_linux")
+    widgets::bind_action(ctx, s1, "x")
+    community.append(s1.handle)
+
+    let s2: gtk::Button = widgets::action_card("system-users-symbolic", "Forum dyskusyjne", "GitHub Discussions HackerOS")
+    widgets::bind_action(ctx, s2, "forum")
+    community.append(s2.handle)
+
+    let s3: gtk::Button = widgets::action_card("document-properties-symbolic", "Changelog", "Co nowego w tej wersji?")
+    widgets::bind_action(ctx, s3, "changelog")
+    community.append(s3.handle)
+
+    body.append(community.handle)
+    return page.root
+end
