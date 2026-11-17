@@ -1,0 +1,193 @@
+mod util
+mod cache
+mod api
+mod jsparse
+mod net
+mod motd
+mod settings
+mod sysinfo
+mod exportdoc
+mod actions
+mod css
+mod widgets
+mod downloads
+mod page_home
+mod page_download
+mod page_docs
+mod page_releases
+mod page_gallery
+mod page_about
+mod page_settings
+
+use "bit -> gtk" from "gtk"
+
+;; Zaznacza przycisk `active` (klasa CSS) i pokazuje strone `name`.
+fn activate(stack: gtk::Stack, all: [int], active: int, name: string) is
+    stack.set_visible(name)
+    let mut i: int = 0
+    while i < all.len() is
+        if all[i] == active is
+            gtk::add_css_class(all[i], "active")
+        else is
+            gtk::remove_css_class(all[i], "active")
+        end
+        i += 1
+    end
+end
+
+fn bind_nav(ctx: widgets::Ctx, stack: gtk::Stack, btn: gtk::Button, name: string, all: [int],
+            dl: page_download::DownloadPage, dc: page_docs::DocsPage, rl: page_releases::ReleasesPage) is
+    ctx.app.on_click(btn, || is
+        activate(stack, all, btn.handle, name)
+        settings::save_last_tab(name)
+        ;; dane starsze niz godzina odswiezamy przy wejsciu na strone
+        if name == "download" is page_download::refresh_if_stale(ctx, dl) end
+        if name == "docs" is page_docs::refresh_if_stale(ctx, dc) end
+        if name == "releases" is page_releases::refresh_if_stale(ctx, rl) end
+        return
+    end)
+end
+
+fn section(text_value: string) -> gtk::Label is
+    let l: gtk::Label = widgets::text(text_value, "sidebar-section-label", false)
+    return l
+end
+
+fn main() is
+    gtk::init_gtk()
+    gtk::init_adw()
+    ;; ciemny motyw przez AdwStyleManager (jak FORCE_DARK w wersji Vala)
+    gtk::set_color_scheme(gtk::color_scheme_force_dark())
+    gtk::load_css(css::stylesheet())
+
+    let app: gtk::App = gtk::new_app()
+    let win: gtk::Window = gtk::new_adw_window("HackerOS Welcome", 1100, 780)
+
+    ;; ── Naglowek (AdwHeaderBar + AdwWindowTitle) ──
+    let header: gtk::AdwHeaderBar = gtk::new_adw_header_bar()
+    let win_title: gtk::WindowTitle = gtk::new_window_title("HackerOS Welcome", "v" + widgets::app_version())
+    header.set_title_widget(win_title.handle)
+    let toasts: gtk::ToastOverlay = gtk::new_toast_overlay()
+
+    ;; ── Pasek stanu ──
+    let status_bar: gtk::Box = gtk::hbox(8)
+    gtk::add_css_class(status_bar.handle, "status-bar")
+    gtk::set_margins(status_bar.handle, 6, 6, 16, 16)
+    let status_dot: gtk::Label = gtk::new_label("●")
+    gtk::add_css_class(status_dot.handle, "status-dot")
+    let status: gtk::Label = widgets::text("Gotowy.", "status-text", false)
+    gtk::set_expand(status.handle, true, false)
+    let footer: gtk::Label = widgets::text("© 2025–2026 HackerOS Team  •  GPL-3.0", "footer-label", false)
+    gtk::set_align(footer.handle, gtk::align_end(), gtk::align_fill())
+    status_bar.append(status_dot.handle)
+    status_bar.append(status.handle)
+    status_bar.append(footer.handle)
+
+    ;; ── Nawigacja boczna ──
+    let sidebar: gtk::Box = gtk::vbox(0)
+    gtk::add_css_class(sidebar.handle, "sidebar")
+    gtk::set_size(sidebar.handle, 210, -1)
+
+    let nav_home: gtk::Button = widgets::nav_button("go-home-symbolic", "Strona główna")
+    let nav_download: gtk::Button = widgets::nav_button("folder-download-symbolic", "Pobieranie")
+    let nav_docs: gtk::Button = widgets::nav_button("help-contents-symbolic", "Dokumentacja")
+    let nav_releases: gtk::Button = widgets::nav_button("document-properties-symbolic", "Wydania")
+    let nav_gallery: gtk::Button = widgets::nav_button("image-x-generic-symbolic", "Galeria")
+    let nav_about: gtk::Button = widgets::nav_button("help-about-symbolic", "O systemie")
+    let nav_settings: gtk::Button = widgets::nav_button("preferences-system-symbolic", "Ustawienia")
+    let nav_software: gtk::Button = widgets::nav_button("system-software-install-symbolic", "Sklep z aplikacjami")
+    let nav_update: gtk::Button = widgets::nav_button("software-update-available-symbolic", "Aktualizacja systemu")
+    let badge: gtk::Label = widgets::add_badge(nav_releases)
+
+    sidebar.append(section("NAWIGACJA").handle)
+    sidebar.append(nav_home.handle)
+    sidebar.append(nav_download.handle)
+    sidebar.append(nav_docs.handle)
+    sidebar.append(nav_releases.handle)
+    sidebar.append(nav_gallery.handle)
+    sidebar.append(nav_about.handle)
+    let sep: gtk::Separator = gtk::new_separator(gtk::orientation_horizontal())
+    gtk::add_css_class(sep.handle, "sidebar-separator")
+    sidebar.append(sep.handle)
+    sidebar.append(section("NARZĘDZIA").handle)
+    sidebar.append(nav_software.handle)
+    sidebar.append(nav_update.handle)
+    sidebar.append(nav_settings.handle)
+    let spacer: gtk::Box = gtk::vbox(0)
+    gtk::set_expand(spacer.handle, false, true)
+    sidebar.append(spacer.handle)
+    let ver: gtk::Label = widgets::text("HackerOS Welcome " + widgets::app_version(), "footer-label", false)
+    gtk::set_margins(ver.handle, 0, 8, 16, 0)
+    sidebar.append(ver.handle)
+
+    ;; ── Kontekst + strony ──
+    let ctx: widgets::Ctx = widgets::Ctx { app: app, win: win, status: status, badge: badge, toasts: toasts }
+
+    let page_home_w: gtk::ScrolledWindow = page_home::build(ctx)
+    let dl: page_download::DownloadPage = page_download::build(ctx)
+    let dc: page_docs::DocsPage = page_docs::build(ctx)
+    let rl: page_releases::ReleasesPage = page_releases::build(ctx)
+    let page_gallery_w: gtk::ScrolledWindow = page_gallery::build(ctx)
+    let page_about_w: gtk::ScrolledWindow = page_about::build(ctx)
+    let page_settings_w: gtk::ScrolledWindow = page_settings::build(ctx)
+
+    let stack: gtk::Stack = gtk::new_stack()
+    stack.set_transition(gtk::transition_crossfade())
+    stack.set_transition_duration(150)
+    gtk::set_expand(stack.handle, true, true)
+    stack.add_named(page_home_w.handle, "home")
+    stack.add_named(dl.root.handle, "download")
+    stack.add_named(dc.root.handle, "docs")
+    stack.add_named(rl.root.handle, "releases")
+    stack.add_named(page_gallery_w.handle, "gallery")
+    stack.add_named(page_about_w.handle, "about")
+    stack.add_named(page_settings_w.handle, "settings")
+
+    ;; ── Zapamietana zakladka ──
+    let all: [int] = [nav_home.handle, nav_download.handle, nav_docs.handle, nav_releases.handle,
+                      nav_gallery.handle, nav_about.handle, nav_settings.handle]
+    let names: [string] = ["home", "download", "docs", "releases", "gallery", "about", "settings"]
+    let last: string = settings::load_last_tab("home")
+    let idx: int = settings::index_in(names, last)
+    activate(stack, all, all[idx], names[idx])
+
+    bind_nav(ctx, stack, nav_home, "home", all, dl, dc, rl)
+    bind_nav(ctx, stack, nav_download, "download", all, dl, dc, rl)
+    bind_nav(ctx, stack, nav_docs, "docs", all, dl, dc, rl)
+    bind_nav(ctx, stack, nav_releases, "releases", all, dl, dc, rl)
+    bind_nav(ctx, stack, nav_gallery, "gallery", all, dl, dc, rl)
+    bind_nav(ctx, stack, nav_about, "about", all, dl, dc, rl)
+    bind_nav(ctx, stack, nav_settings, "settings", all, dl, dc, rl)
+    widgets::bind_action(ctx, nav_software, "software")
+    widgets::bind_action(ctx, nav_update, "update")
+
+    ;; ── Skladanie okna ──
+    let body: gtk::Box = gtk::hbox(0)
+    gtk::set_expand(body.handle, true, true)
+    body.append(sidebar.handle)
+    body.append(gtk::new_separator(gtk::orientation_vertical()).handle)
+    let content: gtk::Box = gtk::vbox(0)
+    gtk::add_css_class(content.handle, "content-area")
+    gtk::set_expand(content.handle, true, true)
+    content.append(stack.handle)
+    body.append(content.handle)
+
+    let root: gtk::Box = gtk::vbox(0)
+    root.append(body.handle)
+    root.append(gtk::new_separator(gtk::orientation_horizontal()).handle)
+    root.append(status_bar.handle)
+    let view: gtk::ToolbarView = gtk::new_toolbar_view()
+    view.add_top_bar(header.handle)
+    view.set_content(root.handle)
+    toasts.set_child(view.handle)
+    win.set_content(toasts.handle)
+
+    app.on_window_close(win, || is app.quit() end)
+    win.present()
+    ;; siec = narzedzie `curl` w tle; gdy go brak, powiedz to od razu (zamiast
+    ;; pustych stron z bledem „brak sieci”)
+    if !net::curl_available() is
+        widgets::notify(ctx, "Nie znaleziono polecenia curl — pobieranie danych i plików nie zadziała (apt install curl).")
+    end
+    app.run()
+end
