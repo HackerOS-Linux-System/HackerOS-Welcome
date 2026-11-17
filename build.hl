@@ -1,6 +1,6 @@
 || H#
 
-> "cd ~/HackerOS-Welcome
+> "cd /home/mkaczmarzyk/HackerOS-Welcome
 
 W=/tmp/hwrap; rm -rf $W; mkdir -p $W
 cat > $W/g++ <<'EOF'
@@ -8,11 +8,19 @@ cat > $W/g++ <<'EOF'
 d=$(cd "$(dirname "$0")" && pwd); n=$(basename "$0"); real=""
 IFS=:; for p in $PATH; do [ "$p" = "$d" ] && continue; [ -x "$p/$n" ] && { real="$p/$n"; break; }; done; unset IFS
 c=$#; i=0
-while [ $i -lt $c ]; do a=$1; shift; case "$a" in -ll,*) a="-W${a#-l}";; -l,*) a="-Wl${a#-l}";; esac; set -- "$@" "$a"; i=$((i+1)); done
+while [ $i -lt $c ]; do
+  a=$1; shift; i=$((i+1))
+  case "$a" in
+    -ll,*) a="-W${a#-l}" ;;
+    -l,*)  a="-Wl${a#-l}" ;;
+    l,*)   [ -e "$a" ] || continue ;;
+  esac
+  set -- "$@" "$a"
+done
 exec "$real" "$@"
 EOF
 chmod +x $W/g++
 for n in gcc cc c++ x86_64-linux-gnu-g++ x86_64-linux-gnu-gcc; do ln -sf g++ $W/$n; done
 
 rm -rf cache/build libs/gtk/.bit/build libs/gtk/.bit/out libs/gtk/gtk.hlib
-PATH="$W:$PATH" bit"
+CXX=$W/g++ CC=$W/gcc PATH="$W:$PATH" bit"
