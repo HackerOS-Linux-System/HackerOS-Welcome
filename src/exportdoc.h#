@@ -1,0 +1,197 @@
+mod util
+mod api
+
+use "std -> fs" from "fs"
+use "std -> strings" from "strings"
+use "std -> conv" from "conv"
+
+;; ── FFI: Cairo / Pango ──────────────────────────────────────────────────────
+
+extern static [c, "cairo"] is
+    fn cairo_pdf_surface_create(filename: string, width: f64, height: f64) -> int
+    fn cairo_surface_status(surface: int) -> int
+    fn cairo_create(surface: int) -> int
+    fn cairo_move_to(cr: int, x: f64, y: f64)
+    fn cairo_set_source_rgb(cr: int, r: f64, g: f64, b: f64)
+    fn cairo_save(cr: int)
+    fn cairo_restore(cr: int)
+    fn cairo_show_page(cr: int)
+    fn cairo_surface_finish(surface: int)
+    fn cairo_destroy(cr: int)
+    fn cairo_surface_destroy(surface: int)
+end
+
+extern static [c, "pangocairo"] is
+    fn pango_cairo_create_layout(cr: int) -> int
+    fn pango_cairo_show_layout(cr: int, layout: int)
+end
+
+extern static [c, "pango"] is
+    fn pango_font_description_new() -> int
+    fn pango_font_description_set_family(desc: int, family: string)
+    fn pango_font_description_set_weight(desc: int, weight: int)
+    fn pango_font_description_set_size(desc: int, size: int)
+    fn pango_font_description_free(desc: int)
+    fn pango_layout_set_font_description(layout: int, desc: int)
+    fn pango_layout_set_width(layout: int, width: int)
+    fn pango_layout_set_wrap(layout: int, wrap: int)
+    fn pango_layout_set_text(layout: int, text: string, length: int)
+    fn pango_layout_get_line_count(layout: int) -> int
+    fn pango_layout_get_context(layout: int) -> int
+    fn pango_context_get_metrics(context: int, desc: int, language: int) -> int
+    fn pango_font_metrics_get_height(metrics: int) -> int
+    fn pango_font_metrics_get_ascent(metrics: int) -> int
+    fn pango_font_metrics_get_descent(metrics: int) -> int
+    fn pango_font_metrics_unref(metrics: int)
+end
+
+extern static [c, "gobject-2.0"] is
+    fn g_object_unref(obj: int)
+end
+
+;; ── Markdown ────────────────────────────────────────────────────────────────
+
+fn lang_name(code: string) -> string is
+    if code == "en" is return "angielskim" end
+    return "niemieckim"
+end
+
+pub fn render_markdown(sections: [api::DocSection]) -> string is
+    let mut sb: string = "# Dokumentacja HackerOS\n\n"
+    sb = sb + "_Wyeksportowano z aplikacji HackerOS Welcome na podstawie danych ze strony HackerOS Website._\n\n"
+    sb = sb + "---\n\n"
+    let mut i: int = 0
+    while i < sections.len() is
+        let s: api::DocSection = sections[i]
+        i += 1
+        sb = sb + "## " + s.title + "\n\n"
+        if !s.available is
+            sb = sb + "_Ta sekcja nie ma jeszcze opublikowanej treści na stronie HackerOS Website._\n\n"
+            continue
+        end
+        if s.lang_used != "pl" is
+            sb = sb + "_Treść dostępna tylko w języku " + lang_name(s.lang_used) + "._\n\n"
+        end
+        sb = sb + s.body + "\n\n"
+        if s.snippets.len() > 0 is
+            sb = sb + "**Polecenia:**\n\n"
+            let mut k: int = 0
+            while k < s.snippets.len() is
+                sb = sb + "```\n" + s.snippets[k] + "\n```\n\n"
+                k += 1
+            end
+        end
+    end
+    return sb
+end
+
+pub fn export_markdown(sections: [api::DocSection], path: string) -> bool is
+    fs::write(path, render_markdown(sections))
+    return fs::is_file(path)
+end
+
+;; ── PDF ─────────────────────────────────────────────────────────────────────
+
+fn make_font(size_pt: int, bold: bool) -> int is
+    let d: int = pango_font_description_new()
+    pango_font_description_set_family(d, "Sans")
+    if bold is pango_font_description_set_weight(d, 700) end
+    pango_font_description_set_size(d, size_pt * 1024)
+    return d
+end
+
+;; Wysokosc jednej linii w punktach (z metryk czcionki; PANGO_SCALE = 1024).
+fn line_height(layout: int, font: int) -> f64 is
+    let ctx: int = pango_layout_get_context(layout)
+    let metrics: int = pango_context_get_metrics(ctx, font, 0)
+    let mut h: int = pango_font_metrics_get_height(metrics)
+    if h <= 0 is
+        h = pango_font_metrics_get_ascent(metrics) + pango_font_metrics_get_descent(metrics)
+    end
+    pango_font_metrics_unref(metrics)
+    if h <= 0 is return 14.0 end
+    return (h + 0.0) / 1024.0
+end
+
+;; Rysuje akapit z zawijaniem wierszy; przechodzi na nowa strone, gdy brak miejsca.
+;; Zwraca nowa pozycje Y. (Odpowiednik render_paragraph; wysokosc = linie * wysokosc linii,
+;; bo H# nie ma wskaznikow „out” potrzebnych do pango_layout_get_pixel_size.)
+fn render_paragraph(cr: int, text: string, font: int, content_w: f64, margin: f64, y_in: f64, page_h: f64) -> f64 is
+    let layout: int = pango_cairo_create_layout(cr)
+    pango_layout_set_font_description(layout, font)
+    pango_layout_set_width(layout, conv::float_to_int(content_w * 1024.0))
+    pango_layout_set_wrap(layout, 2)
+    pango_layout_set_text(layout, text, -1)
+
+    let lines: int = pango_layout_get_line_count(layout)
+    let h: f64 = (lines + 0.0) * line_height(layout, font)
+    let mut y: f64 = y_in
+    if y + h > page_h - margin && y > margin is
+        cairo_show_page(cr)
+        y = margin
+    end
+    cairo_save(cr)
+    cairo_move_to(cr, margin, y)
+    pango_cairo_show_layout(cr, layout)
+    cairo_restore(cr)
+    g_object_unref(layout)
+    return y + h
+end
+
+pub fn export_pdf(sections: [api::DocSection], path: string) -> bool is
+    let page_w: f64 = 595.0
+    let page_h: f64 = 842.0
+    let margin: f64 = 48.0
+    let content_w: f64 = page_w - 2.0 * margin
+
+    let surface: int = cairo_pdf_surface_create(path, page_w, page_h)
+    if cairo_surface_status(surface) != 0 is return false end
+    let cr: int = cairo_create(surface)
+    cairo_set_source_rgb(cr, 0.0, 0.0, 0.0)
+
+    let title_font: int = make_font(20, true)
+    let heading_font: int = make_font(14, true)
+    let note_font: int = make_font(9, false)
+    let body_font: int = make_font(10, false)
+
+    let mut y: f64 = margin
+    y = render_paragraph(cr, "Dokumentacja HackerOS", title_font, content_w, margin, y, page_h)
+    y = y + 16.0
+
+    let mut i: int = 0
+    while i < sections.len() is
+        let s: api::DocSection = sections[i]
+        i += 1
+        y = render_paragraph(cr, s.title, heading_font, content_w, margin, y, page_h)
+        y = y + 6.0
+        if !s.available is
+            y = render_paragraph(cr, "Ta sekcja nie ma jeszcze opublikowanej treści na stronie HackerOS Website.", note_font, content_w, margin, y, page_h)
+            y = y + 16.0
+            continue
+        end
+        if s.lang_used != "pl" is
+            y = render_paragraph(cr, "Treść dostępna tylko w języku " + lang_name(s.lang_used) + ".", note_font, content_w, margin, y, page_h)
+            y = y + 6.0
+        end
+        let paras: [string] = strings::split(s.body, "\n\n")
+        let mut p: int = 0
+        while p < paras.len() is
+            if strings::trim(paras[p]) != "" is
+                y = render_paragraph(cr, paras[p], body_font, content_w, margin, y, page_h)
+                y = y + 8.0
+            end
+            p += 1
+        end
+        y = y + 14.0
+    end
+
+    cairo_show_page(cr)
+    cairo_surface_finish(surface)
+    cairo_destroy(cr)
+    cairo_surface_destroy(surface)
+    pango_font_description_free(title_font)
+    pango_font_description_free(heading_font)
+    pango_font_description_free(note_font)
+    pango_font_description_free(body_font)
+    return fs::is_file(path)
+end
