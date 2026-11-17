@@ -1,0 +1,82 @@
+mod util
+mod api
+mod net
+mod cache
+mod widgets
+
+use "bit -> gtk" from "gtk"
+use "std -> fs" from "fs"
+
+pub fn build(ctx: widgets::Ctx) -> gtk::ScrolledWindow is
+    let page: widgets::Page = widgets::page_shell("Galeria",
+        "Zrzuty ekranu i materiały wizualne HackerOS, sprawdzane na żywo na stronie projektu.", 20)
+    let slot: gtk::Box = gtk::vbox(0)
+    page.body.append(slot.handle)
+    populate(ctx, slot)
+    return page.root
+end
+
+fn populate(ctx: widgets::Ctx, slot: gtk::Box) is
+    widgets::set_loading(ctx, slot, "Sprawdzanie galerii na stronie HackerOS Website…")
+    let job: net::Job = net::start_get(api::path_gallery())
+    widgets::wait_job(ctx, job, |j: net::Job| is
+        let f: net::Fetched = net::finish_fetch(j)
+        let images: [api::GalleryImage] = api::parse_gallery(f.text)
+        widgets::clear_slot(ctx, slot)
+
+        if !f.ok || images.len() == 0 is
+            let ph: gtk::Box = gtk::vbox(10)
+            gtk::add_css_class(ph.handle, "motd-card")
+            ph.append(widgets::text("🖼", "hero-title", false).handle)
+            ph.append(widgets::text("Galeria nie została jeszcze opublikowana na stronie HackerOS Website — ta sekcja jest tam obecnie zapowiedzią („wkrótce więcej materiałów”). Gdy tylko HackerOS Team doda zdjęcia, pojawią się tutaj automatycznie, bez potrzeby aktualizacji aplikacji.", "action-desc", true).handle)
+            slot.add_child(ph.handle)
+            widgets::set_status(ctx, "Galeria: brak jeszcze opublikowanych materiałów")
+            return
+        end
+
+        let flow: gtk::FlowBox = gtk::new_flow_box()
+        flow.set_selection_mode(gtk::selection_mode_none())
+        flow.set_max_per_line(4)
+        flow.set_min_per_line(2)
+        flow.set_row_spacing(12)
+        flow.set_column_spacing(12)
+        slot.add_child(flow.handle)
+
+        let mut i: int = 0
+        while i < images.len() is
+            flow.append(tile(ctx, images[i]).handle)
+            i += 1
+        end
+        widgets::set_status(ctx, "Wczytano galerię (" + to_string(images.len()) + " obrazów)")
+    end)
+end
+
+fn tile(ctx: widgets::Ctx, img: api::GalleryImage) -> gtk::Box is
+    let box: gtk::Box = gtk::vbox(6)
+    gtk::add_css_class(box.handle, "motd-card")
+    gtk::set_size(box.handle, 200, -1)
+
+    let pic: gtk::Picture = gtk::new_picture("")
+    pic.set_content_fit(gtk::content_fit_cover())
+    gtk::set_size(pic.handle, -1, 130)
+    box.append(pic.handle)
+    if img.caption != "" is
+        box.append(widgets::text(img.caption, "action-desc", true).handle)
+    end
+
+    ;; miniatura: z cache, a jesli jej nie ma — pobierz w tle i podmien
+    let full: string = api::resolve_url(img.url)
+    let local: string = cache::subdir("gallery") + "/" + util::safe_name(full)
+    if fs::is_file(local) is
+        pic.set_file(local)
+    elsif util::is_http_url(full) is
+        gtk::keep(pic.handle)
+        let job: net::Job = net::start_download(full, local)
+        widgets::wait_job(ctx, job, |j: net::Job| is
+            if net::succeeded(j) is pic.set_file(local) end
+            net::cleanup(j)
+            gtk::release(pic.handle)
+        end)
+    end
+    return box
+end
