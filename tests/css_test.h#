@@ -1,0 +1,8 @@
+use "std -> test" from "test"
+fn main() is
+    let s: string = css::stylesheet()
+    assert_true(s.contains("window, .window-frame " + "{" + " background-color: #0d0d0f; color: #e8e8ec; " + "}"))
+    assert_true(s.contains(".action-card:hover"))
+    assert_true(s.len() > 5000)
+    write("css OK " + to_string(s.len()))
+end
