@@ -1,0 +1,138 @@
+mod util
+
+use "bit -> gtk" from "gtk"
+use "std -> process" from "proc"
+use "std -> strings" from "strings"
+
+;; ── Prymitywy ───────────────────────────────────────────────────────────────
+
+;; Otwiera adres w domyslnej aplikacji systemu (gtk::open_uri = g_app_info_launch_default_for_uri).
+pub fn open_url(url: string, ok_msg: string, err_msg: string) -> string is
+    if !util::is_http_url(url) is
+        return err_msg + " (niedozwolony adres)"
+    end
+    if gtk::open_uri(url) is return ok_msg end
+    return err_msg
+end
+
+;; Najpierw Vivaldi, potem xdg-open; na koncu domyslny launcher GTK.
+pub fn open_browser(url: string, ok_msg: string) -> string is
+    if !util::is_http_url(url) is
+        return "Błąd podczas otwierania " + url + " (niedozwolony adres)"
+    end
+    let browsers: [string] = ["vivaldi", "vivaldi-stable", "xdg-open"]
+    let mut i: int = 0
+    while i < browsers.len() is
+        if proc::which(browsers[i]) != "" is
+            proc::spawn(browsers[i] + " " + util::shq(url) + " >/dev/null 2>&1")
+            return ok_msg
+        end
+        i += 1
+    end
+    return open_url(url, ok_msg, "Błąd podczas otwierania " + url)
+end
+
+;; ── Adresy ──────────────────────────────────────────────────────────────────
+
+pub fn site(path: string) -> string is
+    return "https://hackeros-linux-system.github.io/HackerOS-Website/" + path
+end
+
+;; ── Akcje publiczne ─────────────────────────────────────────────────────────
+
+pub fn open_website() -> string is
+    return open_url(site("Home-page.html"), "Otworzono stronę HackerOS.", "Błąd podczas otwierania strony HackerOS.")
+end
+
+pub fn open_documentation() -> string is
+    return open_browser(site("hackeros-documentation.html"), "Otworzono dokumentację HackerOS.")
+end
+
+pub fn open_tools_docs() -> string is
+    return open_browser(site("tools-docs/index.html"), "Otworzono dokumentację narzędzi HackerOS.")
+end
+
+pub fn open_x() -> string is
+    return open_url("https://x.com/hackeros_linux", "Otworzono X (Twitter).", "Błąd podczas otwierania X.")
+end
+
+pub fn open_changelog() -> string is
+    return open_url(site("releases.html"), "Otworzono Changelog.", "Błąd podczas otwierania Changelog.")
+end
+
+pub fn open_download() -> string is
+    return open_url(site("download.html"), "Otworzono stronę pobierania.", "Błąd podczas otwierania strony pobierania.")
+end
+
+;; Dowolny odnośnik (adresy edycji pobierane dynamicznie z API strony).
+pub fn open_link(url: string, ok_msg: string) -> string is
+    return open_url(url, ok_msg, "Błąd podczas otwierania odnośnika.")
+end
+
+pub fn open_github() -> string is
+    return open_url("https://github.com/HackerOS-Linux-System", "Otworzono GitHub.", "Błąd podczas otwierania GitHub.")
+end
+
+pub fn open_system_info() -> string is
+    return open_url(site("about-hackeros.html"), "Otworzono Informacje o systemie.", "Błąd podczas otwierania Informacje o systemie.")
+end
+
+pub fn report_bug() -> string is
+    return open_url("https://github.com/HackerOS-Linux-System/HackerOS-Website/issues",
+                    "Otworzono stronę zgłaszania błędów.", "Błąd podczas otwierania trackera błędów.")
+end
+
+pub fn open_forum() -> string is
+    return open_url("https://github.com/HackerOS-Linux-System/HackerOS-Website/discussions",
+                    "Otworzono Forum dyskusyjne.", "Błąd podczas otwierania forum.")
+end
+
+;; Uruchamia GNOME Software (sklep z aplikacjami).
+pub fn open_software() -> string is
+    if proc::which("gnome-software") == "" is
+        return "Błąd podczas uruchamiania Sklep z aplikacjami: nie znaleziono gnome-software"
+    end
+    proc::spawn("gnome-software >/dev/null 2>&1")
+    return "Uruchomiono Sklep z aplikacjami."
+end
+
+;; Komenda terminala uruchamiajaca skrypt aktualizacji; "" gdy zaden terminal nie jest zainstalowany.
+pub fn update_command(home: string) -> string is
+    let binary: string = home + "/.hackeros/hacker/update-system"
+    let inner: string = util::shq(binary) + "; echo; read -p " + util::shq("Naciśnij Enter, aby zamknąć terminal…")
+    let terms: [string] = ["alacritty", "konsole", "xterm"]
+    let mut i: int = 0
+    while i < terms.len() is
+        if proc::which(terms[i]) != "" is
+            return terms[i] + " -e bash -c " + util::shq(inner) + " >/dev/null 2>&1"
+        end
+        i += 1
+    end
+    return ""
+end
+
+;; Uruchamia ~/.hackeros/hacker/update-system w terminalu (alacritty -> konsole -> xterm).
+pub fn update_system() -> string is
+    let cmd: string = update_command(util::home())
+    if cmd == "" is return "Błąd: nie znaleziono obsługiwanego terminala." end
+    proc::spawn(cmd)
+    return "Uruchomiono aktualizację systemu w terminalu."
+end
+
+;; Dyspozytor akcji po nazwie — UI wiaze przyciski z nazwami (`"website"`, `"docs"`...),
+;; dzieki czemu domkniecia nie musza przenosic wskaznikow na funkcje.
+pub fn run(name: string) -> string is
+    if name == "website" is return open_website() end
+    if name == "docs" is return open_documentation() end
+    if name == "tools_docs" is return open_tools_docs() end
+    if name == "x" is return open_x() end
+    if name == "changelog" is return open_changelog() end
+    if name == "download" is return open_download() end
+    if name == "github" is return open_github() end
+    if name == "about_system" is return open_system_info() end
+    if name == "bug" is return report_bug() end
+    if name == "forum" is return open_forum() end
+    if name == "software" is return open_software() end
+    if name == "update" is return update_system() end
+    return "Nieznana akcja: " + name
+end
