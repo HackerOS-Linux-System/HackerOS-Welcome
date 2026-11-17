@@ -1,0 +1,244 @@
+mod util
+mod net
+mod api
+mod cache
+mod settings
+
+use "bit -> gtk" from "gtk"
+use "std -> time" from "time"
+
+pub fn app_version() -> string is return util::app_version() end
+
+;; Kontekst przekazywany do wszystkich stron. Struktura jest tylko czytana w
+;; domknieciach (H# nie wspiera jeszcze mutowalnego capture), a caly stan zmienny
+;; trzyma sie w widgetach / na dysku.
+struct Ctx is
+    pub app:    gtk::App
+    pub win:    gtk::Window
+    pub status: gtk::Label
+    ;; czerwona kropka „nowosc” na przycisku Wydania
+    pub badge:  gtk::Label
+    ;; (0.4) nakladka na toasty libadwaita
+    pub toasts: gtk::ToastOverlay
+end
+
+pub fn set_status(ctx: Ctx, msg: string) is
+    ctx.status.set_text("● " + msg)
+end
+
+;; Jak `set_status`, ale dodatkowo pokazuje krotki toast libadwaita — dla wynikow
+;; dzialan uzytkownika (pobrano, zapisano, zmieniono ustawienie, blad).
+pub fn notify(ctx: Ctx, msg: string) is
+    set_status(ctx, msg)
+    gtk::toast(ctx.toasts, msg, 4)
+end
+
+;; ── Etykiety ────────────────────────────────────────────────────────────────
+
+;; Etykieta wyrownana do lewej z klasa CSS (opcjonalnie zawijana).
+pub fn text(content: string, css: string, wrap: bool) -> gtk::Label is
+    let l: gtk::Label = gtk::new_label(content)
+    gtk::set_align(l.handle, gtk::align_start(), gtk::align_fill())
+    l.set_xalign(0.0)
+    if css != "" is gtk::add_css_class(l.handle, css) end
+    if wrap is l.set_wrap(true) end
+    return l
+end
+
+pub fn section_label(content: string) -> gtk::Label is
+    return text(util::upper(content), "section-title", false)
+end
+
+pub fn icon(name: string, size: int) -> gtk::Image is
+    let i: gtk::Image = gtk::new_icon_image(name)
+    i.set_pixel_size(size)
+    return i
+end
+
+;; ── Przyciski ───────────────────────────────────────────────────────────────
+
+;; Przycisk bocznej nawigacji: ikona + podpis w poziomym Box (dostep do Box = `child`).
+pub fn nav_button(icon_name: string, label_text: string) -> gtk::Button is
+    let btn: gtk::Button = gtk::new_button("")
+    gtk::add_css_class(btn.handle, "sidebar-item")
+    gtk::set_align(btn.handle, gtk::align_fill(), gtk::align_fill())
+    let row: gtk::Box = gtk::hbox(10)
+    gtk::set_margins(row.handle, 0, 0, 4, 0)
+    let ic: gtk::Image = icon(icon_name, 18)
+    gtk::set_align(ic.handle, gtk::align_fill(), gtk::align_center())
+    row.append(ic.handle)
+    let lbl: gtk::Label = text(label_text, "", false)
+    gtk::set_expand(lbl.handle, true, false)
+    row.append(lbl.handle)
+    btn.set_child(row.handle)
+    return btn
+end
+
+;; Kropka „nowosc” dodana do wnetrza przycisku nawigacji (domyslnie ukryta).
+pub fn add_badge(nav: gtk::Button) -> gtk::Label is
+    let dot: gtk::Label = gtk::new_label("●")
+    gtk::add_css_class(dot.handle, "nav-badge")
+    let row: int = gtk::first_child(nav.handle)
+    ;; GtkButton ma jedno dziecko — nasz Box
+    let b: gtk::Box = gtk::Box { handle: row }
+    b.append(dot.handle)
+    gtk::set_visible(dot.handle, false)
+    return dot
+end
+
+;; Karta akcji: ikona, tytul, opis — jako przycisk.
+pub fn action_card(icon_name: string, title: string, description: string) -> gtk::Button is
+    let btn: gtk::Button = gtk::new_button("")
+    gtk::add_css_class(btn.handle, "action-card")
+    let v: gtk::Box = gtk::vbox(8)
+    gtk::set_margins(v.handle, 0, 0, 4, 4)
+    let ic: gtk::Image = icon(icon_name, 28)
+    gtk::set_align(ic.handle, gtk::align_start(), gtk::align_fill())
+    gtk::add_css_class(ic.handle, "action-icon")
+    v.append(ic.handle)
+    v.append(text(title, "action-title", true).handle)
+    v.append(text(description, "action-desc", true).handle)
+    btn.set_child(v.handle)
+    return btn
+end
+
+;; Maly przycisk-„pastylka” z tekstem (np. „Odswiez liste”).
+pub fn pill(label_text: string, css: string) -> gtk::Button is
+    let b: gtk::Button = gtk::new_button(label_text)
+    gtk::add_css_class(b.handle, css)
+    gtk::set_align(b.handle, gtk::align_start(), gtk::align_fill())
+    return b
+end
+
+;; Karta akcji wywolujaca `actions::run(name)`; status trafia na pasek stanu.
+pub fn bind_action(ctx: Ctx, btn: gtk::Button, name: string) is
+    ctx.app.on_click(btn, || is
+        notify(ctx, actions::run(name))
+    end)
+end
+
+;; ── Szkielet strony ─────────────────────────────────────────────────────────
+
+struct Page is
+    pub root: gtk::ScrolledWindow
+    pub body: gtk::Box
+end
+
+;; Przewijana strona z marginesami 32/28 i naglowkiem (tytul + podtytul).
+pub fn page_shell(title: string, subtitle: string, hero_bottom: int) -> Page is
+    let sw: gtk::ScrolledWindow = gtk::new_scrolled_window()
+    sw.set_policy(gtk::policy_never(), gtk::policy_automatic())
+    gtk::set_expand(sw.handle, true, true)
+    let body: gtk::Box = gtk::vbox(0)
+    gtk::set_margins(body.handle, 28, 28, 32, 32)
+    sw.set_child(body.handle)
+    let hero: gtk::Box = gtk::vbox(6)
+    gtk::set_margins(hero.handle, 0, hero_bottom, 0, 0)
+    hero.append(text(title, "hero-title", false).handle)
+    if subtitle != "" is
+        hero.append(text(subtitle, "hero-subtitle", true).handle)
+    end
+    body.append(hero.handle)
+    return Page { root: sw, body: body }
+end
+
+;; ── Sloty dynamiczne (ladowanie / blad) ─────────────────────────────────────
+
+;; Czyści slot; wczesniej wyrejestrowuje zdarzenia WSZYSTKICH potomkow (polling
+;; nie moze dotykac zniszczonych widgetow).
+pub fn clear_slot(ctx: Ctx, slot: gtk::Box) is
+    let mut c: int = gtk::first_child(slot.handle)
+    while c != 0 is
+        ctx.app.unwatch_tree(c)
+        c = gtk::next_sibling(c)
+    end
+    slot.clear()
+end
+
+pub fn set_loading(ctx: Ctx, slot: gtk::Box, message: string) is
+    clear_slot(ctx, slot)
+    let row: gtk::Box = gtk::hbox(10)
+    let sp: gtk::Spinner = gtk::new_spinner()
+    sp.start()
+    row.append(sp.handle)
+    row.append(text(message, "footer-label", false).handle)
+    slot.append(row.handle)
+end
+
+;; Karta bledu z opcjonalnym przyciskiem „Sprobuj ponownie”.
+pub fn set_error(ctx: Ctx, slot: gtk::Box, message: string, retry: fn() -> void) is
+    clear_slot(ctx, slot)
+    let box: gtk::Box = gtk::vbox(10)
+    gtk::add_css_class(box.handle, "motd-card")
+    box.append(text(message, "action-desc", true).handle)
+    let btn: gtk::Button = pill("Spróbuj ponownie", "distro-badge")
+    box.append(btn.handle)
+    slot.append(box.handle)
+    ctx.app.on_click(btn, || is retry() end)
+end
+
+;; ── Zadania w tle ───────────────────────────────────────────────────────────
+
+;; Odpytuje zadanie co 150 ms (timer `after`, tylko dopoki zadanie trwa —
+;; bez zadan petla GTK spi na zdarzeniach) i wola `done`, gdy sie zakonczy.
+pub fn wait_job(ctx: Ctx, job: net::Job, done: fn(net::Job) -> void) is
+    if net::finished(job) is
+        done(job)
+    else is
+        ctx.app.after(150, || is wait_job(ctx, job, done) end)
+    end
+end
+
+pub fn wait_two(ctx: Ctx, a: net::Job, b: net::Job, done: fn(net::Job, net::Job) -> void) is
+    if net::finished(a) && net::finished(b) is
+        done(a, b)
+    else is
+        ctx.app.after(150, || is wait_two(ctx, a, b, done) end)
+    end
+end
+
+;; Natywne okno „Zapisz jako” (GtkFileDialog). `initial` = proponowana pelna sciezka
+;; pliku; `on_ok` dostaje wybrana sciezke (przy anulowaniu nie jest wolane).
+;; `ok_label` jest zachowany dla zgodnosci z poprzednia wersja (GTK ma wlasny przycisk).
+pub fn ask_path(ctx: Ctx, title: string, initial: string, ok_label: string, on_ok: fn(string) -> void) is
+    let name: string = util::basename(initial)
+    let mut folder: string = ""
+    if initial.len() > name.len() + 1 is
+        folder = initial[0..initial.len() - name.len() - 1]
+    end
+    ctx.app.save_file(ctx.win, title, name, folder, |path: string| is
+        if path != "" is on_ok(path) end
+        return
+    end)
+end
+
+;; ── Okno „O programie” (Adw.AboutDialog, jak w wersji Vala) ─────────────────
+
+pub fn show_about(ctx: Ctx) is
+    gtk::show_about_dialog(ctx.win, "HackerOS Welcome", "org.hackeros.welcome", "HackerOS Team",
+        app_version(),
+        "Aplikacja powitalna systemu HackerOS — pobieranie edycji, wydania, dokumentacja i stan systemu w jednym miejscu.",
+        "https://hackeros-linux-system.github.io/HackerOS-Website/",
+        "https://github.com/HackerOS-Linux-System/HackerOS-Welcome/issues",
+        "https://github.com/HackerOS-Linux-System/HackerOS-Welcome/discussions",
+        "© 2025–2026 HackerOS Team", gtk::license_gpl_3_0())
+end
+
+;; ── Opis zrodla danych (na zywo / z cache) ──────────────────────────────────
+
+;; Linia pod naglowkiem strony: „Pobrano na zywo z <url> • 12:34:56” albo ostrzezenie offline.
+pub fn fetch_note(f: net::Fetched, path: string, extra: string) -> string is
+    if f.cached is
+        return "⚠ Brak połączenia z internetem — pokazano dane z pamięci podręcznej z " + util::local_time(f.at, "%d.%m.%Y %H:%M") + " (offline)"
+    end
+    return "● Pobrano na żywo z " + api::resolve_url(path) + "  •  " + util::local_time(f.at, "%H:%M:%S") + extra
+end
+
+;; Czy dane zasobu w cache sa starsze niz godzina (lub ich nie ma)?
+;; Zastepuje cogodzinny timer z wersji Vala: timer `every` zmuszalby petle GTK do
+;; ciaglego odpytywania (ok. 250 wybudzen/s), wiec odswiezamy przy wejsciu na strone.
+pub fn is_stale(path: string) -> bool is
+    let at: int = cache::saved_at(path)
+    if at == 0 is return true end
+    return time::now_unix() - at > 3600
+end
