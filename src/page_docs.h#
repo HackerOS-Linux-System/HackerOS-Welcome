@@ -1,0 +1,310 @@
+mod util
+mod api
+mod net
+mod settings
+mod widgets
+mod exportdoc
+
+use "bit -> gtk" from "gtk"
+
+struct DocsPage is
+    pub root:   gtk::ScrolledWindow
+    pub slot:   gtk::Box
+    pub source: gtk::Label
+    pub search: gtk::SearchEntry
+    pub md:     gtk::Button
+    pub pdf:    gtk::Button
+end
+
+pub fn build(ctx: widgets::Ctx) -> DocsPage is
+    let page: widgets::Page = widgets::page_shell("Dokumentacja",
+        "Pełna dokumentacja HackerOS pobierana na żywo ze strony projektu i czytana w całości bezpośrednio w tej aplikacji.", 6)
+    let body: gtk::Box = page.body
+
+    let source: gtk::Label = widgets::text("", "footer-label", true)
+    gtk::set_margins(source.handle, 0, 12, 0, 0)
+    body.append(source.handle)
+
+    let search: gtk::SearchEntry = gtk::new_search_entry()
+    search.set_placeholder("🔍 Szukaj w kategoriach dokumentacji…")
+    gtk::set_margins(search.handle, 0, 12, 0, 0)
+    body.append(search.handle)
+
+    let export_box: gtk::Box = gtk::hbox(8)
+    gtk::set_margins(export_box.handle, 0, 12, 0, 0)
+    let md: gtk::Button = gtk::new_button("Eksportuj jako Markdown")
+    gtk::add_css_class(md.handle, "chip-btn")
+    let pdf: gtk::Button = gtk::new_button("Eksportuj jako PDF")
+    gtk::add_css_class(pdf.handle, "chip-btn")
+    export_box.append(md.handle)
+    export_box.append(pdf.handle)
+    body.append(export_box.handle)
+
+    let slot: gtk::Box = gtk::vbox(0)
+    body.append(slot.handle)
+
+    let refresh: gtk::Button = widgets::pill("Odśwież dokumentację", "distro-badge")
+    gtk::set_margins(refresh.handle, 0, 24, 0, 0)
+    body.append(refresh.handle)
+
+    body.append(extra_section(ctx).handle)
+
+    let dp: DocsPage = DocsPage { root: page.root, slot: slot, source: source, search: search, md: md, pdf: pdf }
+    ctx.app.on_click(refresh, || is populate(ctx, dp) end)
+    populate(ctx, dp)
+    return dp
+end
+
+pub fn refresh_if_stale(ctx: widgets::Ctx, p: DocsPage) is
+    if widgets::is_stale(api::path_docs()) is populate(ctx, p) end
+end
+
+pub fn populate(ctx: widgets::Ctx, p: DocsPage) is
+    widgets::set_loading(ctx, p.slot, "Pobieranie pełnej dokumentacji ze strony HackerOS Website…")
+    p.source.set_text("")
+    let engine: net::Job = net::start_get(api::path_doc_engine())
+    let docs: net::Job = net::start_get(api::path_docs())
+    widgets::wait_two(ctx, engine, docs, |a: net::Job, b: net::Job| is
+        let fe: net::Fetched = net::finish_fetch(a)
+        let fd: net::Fetched = net::finish_fetch(b)
+        let mut sections: [api::DocSection] = []
+        if fd.ok is
+            sections = api::build_docs(fe.text, fd.text, settings::doc_lang_primary())
+        end
+        if sections.len() == 0 is
+            widgets::set_error(ctx, p.slot,
+                "Nie udało się pobrać dokumentacji z HackerOS Website (brak sieci i brak danych w pamięci podręcznej). Sprawdź połączenie z internetem i spróbuj ponownie.",
+                || is populate(ctx, p) end)
+            widgets::notify(ctx, "Błąd pobierania dokumentacji")
+            return
+        end
+
+        widgets::clear_slot(ctx, p.slot)
+        let mut available: int = 0
+        let mut k: int = 0
+        while k < sections.len() is
+            if sections[k].available is available += 1 end
+            k += 1
+        end
+        ;; domkniecia nie moga przechwytywac zmiennych `mut` — stala kopia listy
+        let counts: string = to_string(available) + "/" + to_string(sections.len())
+        let secs: [api::DocSection] = sections
+        p.source.set_text(widgets::fetch_note(fd, api::path_docs(), "  •  " + counts + " kategorii z opublikowaną treścią"))
+
+        ;; eksport — przyciski sa trwale, wiec podmien domkniecia
+        ctx.app.unwatch(p.md.handle)
+        ctx.app.unwatch(p.pdf.handle)
+        ctx.app.on_click(p.md, || is export_flow(ctx, secs, "markdown") end)
+        ctx.app.on_click(p.pdf, || is export_flow(ctx, secs, "pdf") end)
+
+        ;; czytnik: lista | separator | tresc
+        let reader: gtk::Box = gtk::hbox(0)
+        gtk::add_css_class(reader.handle, "motd-card")
+        gtk::set_size(reader.handle, -1, 480)
+        gtk::set_margins(reader.handle, 0, 20, 0, 0)
+
+        let list_scroll: gtk::ScrolledWindow = gtk::new_scrolled_window()
+        list_scroll.set_policy(gtk::policy_never(), gtk::policy_automatic())
+        list_scroll.set_min_width(240)
+        gtk::set_expand(list_scroll.handle, false, true)
+        let listbox: gtk::ListBox = gtk::new_list_box()
+        gtk::add_css_class(listbox.handle, "doc-list")
+        listbox.set_selection_mode(gtk::selection_mode_single())
+        list_scroll.set_child(listbox.handle)
+
+        let content_scroll: gtk::ScrolledWindow = gtk::new_scrolled_window()
+        content_scroll.set_policy(gtk::policy_never(), gtk::policy_automatic())
+        gtk::set_expand(content_scroll.handle, true, true)
+        let body_box: gtk::Box = gtk::vbox(8)
+        gtk::set_margins(body_box.handle, 20, 20, 24, 24)
+        content_scroll.set_child(body_box.handle)
+
+        reader.append(list_scroll.handle)
+        reader.append(gtk::new_separator(gtk::orientation_vertical()).handle)
+        reader.append(content_scroll.handle)
+        p.slot.add_child(reader.handle)
+
+        render_list(ctx, listbox, secs, "", body_box)
+        ctx.app.unwatch(p.search.handle)
+        ctx.app.on_change(p.search.as_entry(), |q: string| is render_list(ctx, listbox, secs, q, body_box) end)
+        widgets::set_status(ctx, "Wczytano dokumentację (" + counts + " kategorii z treścią)")
+    end)
+end
+
+;; Wypelnia liste kategoriami pasujacymi do zapytania i podpina wybor wiersza -> tresc.
+fn render_list(ctx: widgets::Ctx, listbox: gtk::ListBox, sections: [api::DocSection], query: string, body_box: gtk::Box) is
+    ctx.app.unwatch(listbox.handle)
+    listbox.clear()
+    let q: string = util::lower(util::trim(query))
+    let mut shown: [api::DocSection] = []
+    let mut first_available: int = -1
+    let mut i: int = 0
+    while i < sections.len() is
+        let s: api::DocSection = sections[i]
+        i += 1
+        if q != "" && !(util::lower(s.title).contains(q) || util::lower(s.body).contains(q)) is continue end
+
+        let row: gtk::Box = gtk::hbox(8)
+        gtk::set_margins(row.handle, 8, 8, 12, 12)
+        let mut dot_text: string = "○"
+        let mut dot_css: string = "footer-label"
+        let mut title_css: string = "action-desc"
+        if s.available is
+            dot_text = "●"
+            dot_css = "status-dot"
+            title_css = "action-title"
+        end
+        row.append(widgets::text(dot_text, dot_css, false).handle)
+        let t: gtk::Label = widgets::text(s.title, title_css, true)
+        gtk::set_expand(t.handle, true, false)
+        row.append(t.handle)
+        listbox.append(row.handle)
+
+        if s.available && first_available < 0 is first_available = shown.len() end
+        shown.push(s)
+    end
+
+    if shown.len() == 0 is
+        widgets::clear_slot(ctx, body_box)
+        body_box.append(widgets::text("Brak kategorii pasujących do wyszukiwania „" + query + "”.", "action-desc", true).handle)
+        return
+    end
+
+    ;; stala kopia — domkniecie nie moze przechwycic zmiennej `mut`
+    let frozen: [api::DocSection] = shown
+    ctx.app.on_selection_change(listbox, |idx: int| is
+        if idx >= 0 && idx < frozen.len() is
+            render_body(ctx, body_box, frozen[idx])
+        end
+        return
+    end)
+
+    let mut start: int = 0
+    if first_available >= 0 is start = first_available end
+    listbox.select_index(start)
+    render_body(ctx, body_box, frozen[start])
+end
+
+fn render_body(ctx: widgets::Ctx, body_box: gtk::Box, s: api::DocSection) is
+    widgets::clear_slot(ctx, body_box)
+    body_box.append(widgets::text(s.title, "hero-accent", true).handle)
+
+    if !s.available is
+        let msg: gtk::Label = widgets::text("Ta kategoria nie ma jeszcze opublikowanej treści na stronie HackerOS Website — sprawdzono na żywo, w danych źródłowych strony po prostu brak jeszcze tej treści (w żadnym języku). To nie jest błąd aplikacji. Sekcja pojawi się tutaj automatycznie, gdy tylko zostanie opublikowana na stronie.", "action-desc", true)
+        gtk::set_margins(msg.handle, 6, 0, 0, 0)
+        body_box.append(msg.handle)
+        return
+    end
+
+    if s.lang_used != "pl" is
+        let mut lang_name: string = "niemiecką"
+        if s.lang_used == "en" is lang_name = "angielską" end
+        body_box.append(widgets::text("ℹ Ta sekcja nie ma jeszcze polskiego tłumaczenia na stronie HackerOS Website — pokazano dostępną wersję " + lang_name + ".", "footer-label", true).handle)
+    end
+
+    let body_lbl: gtk::Label = widgets::text(s.body, "motd-text", true)
+    body_lbl.set_selectable(true)
+    gtk::set_margins(body_lbl.handle, 6, 0, 0, 0)
+    body_box.append(body_lbl.handle)
+
+    if s.snippets.len() > 0 is
+        let head: gtk::Label = widgets::text("POLECENIA W TEJ SEKCJI", "motd-header", false)
+        gtk::set_margins(head.handle, 10, 0, 0, 0)
+        body_box.append(head.handle)
+        let mut k: int = 0
+        while k < s.snippets.len() is
+            body_box.append(code_row(ctx, s.snippets[k]).handle)
+            k += 1
+        end
+    end
+end
+
+;; Wiersz z poleceniem i przyciskiem „Kopiuj” do schowka.
+fn code_row(ctx: widgets::Ctx, command: string) -> gtk::Box is
+    let row: gtk::Box = gtk::hbox(8)
+    gtk::add_css_class(row.handle, "code-row")
+    let code: gtk::Label = widgets::text(command, "code-text", true)
+    code.set_selectable(true)
+    gtk::set_expand(code.handle, true, false)
+    row.append(code.handle)
+
+    let copy: gtk::Button = gtk::new_button("Kopiuj")
+    gtk::add_css_class(copy.handle, "chip-btn")
+    gtk::set_align(copy.handle, gtk::align_fill(), gtk::align_start())
+    row.append(copy.handle)
+    ctx.app.on_click(copy, || is
+        gtk::clipboard_set_text(command)
+        copy.set_label("Skopiowano ✓")
+        ;; uzytkownik moze w ciagu 1,5 s przelaczyc kategorie (widget zniknie) — trzymamy referencje
+        gtk::keep(copy.handle)
+        ctx.app.after(1500, || is
+            copy.set_label("Kopiuj")
+            gtk::release(copy.handle)
+        end)
+    end)
+    return row
+end
+
+;; Eksport do Markdown / PDF — sciezke podaje uzytkownik w oknie „zapisz jako”.
+fn export_flow(ctx: widgets::Ctx, sections: [api::DocSection], format: string) is
+    let mut title: string = "Zapisz dokumentację jako Markdown"
+    let mut initial: string = util::download_dir() + "/dokumentacja-hackeros.md"
+    if format == "pdf" is
+        title = "Zapisz dokumentację jako PDF"
+        initial = util::download_dir() + "/dokumentacja-hackeros.pdf"
+    end
+    widgets::ask_path(ctx, title, initial, "Zapisz", |path: string| is
+        let mut ok: bool = false
+        if format == "pdf" is
+            ok = exportdoc::export_pdf(sections, path)
+        else is
+            ok = exportdoc::export_markdown(sections, path)
+        end
+        if ok is
+            widgets::notify(ctx, "Wyeksportowano dokumentację: " + util::basename(path))
+        else is
+            widgets::notify(ctx, "Eksport dokumentacji nie powiódł się.")
+        end
+    end)
+end
+
+;; „Wolisz przeglądarkę?” + zgłaszanie problemów.
+fn extra_section(ctx: widgets::Ctx) -> gtk::Box is
+    let box: gtk::Box = gtk::vbox(0)
+    box.append(widgets::section_label("Wolisz przeglądarkę?").handle)
+    let hint: gtk::Label = widgets::text("Czytnik powyżej pokazuje pełną treść dokumentacji lokalnie, bez opuszczania aplikacji. Tutaj znajdziesz też odnośniki do wersji online.", "action-desc", true)
+    gtk::set_margins(hint.handle, 0, 8, 0, 0)
+    box.append(hint.handle)
+
+    let grid: gtk::Grid = gtk::new_grid()
+    grid.set_column_spacing(12)
+    grid.set_row_spacing(12)
+    grid.set_column_homogeneous(true)
+    gtk::set_margins(grid.handle, 8, 24, 0, 0)
+    let a: gtk::Button = widgets::action_card("help-contents-symbolic", "Pełna dokumentacja online", "Otwórz stronę dokumentacji w przeglądarce")
+    widgets::bind_action(ctx, a, "docs")
+    grid.attach(a.handle, 0, 0, 1, 1)
+    let b: gtk::Button = widgets::action_card("utilities-terminal-symbolic", "Dokumentacja narzędzi", "Narzędzia CLI i skrypty wbudowane w HackerOS")
+    widgets::bind_action(ctx, b, "tools_docs")
+    grid.attach(b.handle, 1, 0, 1, 1)
+    let c: gtk::Button = widgets::action_card("document-properties-symbolic", "Changelog online", "Pełna historia zmian w przeglądarce")
+    widgets::bind_action(ctx, c, "changelog")
+    grid.attach(c.handle, 2, 0, 1, 1)
+    box.append(grid.handle)
+
+    box.append(widgets::section_label("Zgłaszanie problemów").handle)
+    let bug_box: gtk::Box = gtk::hbox(12)
+    bug_box.set_homogeneous(true)
+    gtk::set_margins(bug_box.handle, 8, 0, 0, 0)
+    let d: gtk::Button = widgets::action_card("dialog-warning-symbolic", "Zgłoś błąd", "GitHub Issues – zgłoś problem lub usterkę")
+    widgets::bind_action(ctx, d, "bug")
+    bug_box.append(d.handle)
+    let e: gtk::Button = widgets::action_card("system-users-symbolic", "Forum dyskusyjne", "GitHub Discussions – zadaj pytanie społeczności")
+    widgets::bind_action(ctx, e, "forum")
+    bug_box.append(e.handle)
+    let spacer: gtk::Box = gtk::hbox(0)
+    gtk::set_expand(spacer.handle, true, false)
+    bug_box.append(spacer.handle)
+    box.append(bug_box.handle)
+    return box
+end
