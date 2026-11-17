@@ -1,0 +1,13 @@
+use "std -> test" from "test"
+
+fn main() is
+    assert_eq(motd::unwrap_pairs("a **bold** b", "**", false), "a bold b")
+    assert_eq(motd::unwrap_pairs("run update_system now", "_", true), "run update_system now")
+    assert_eq(motd::unwrap_pairs("an _italic_ word", "_", true), "an italic word")
+    assert_eq(motd::unwrap_pairs("x ** y", "**", false), "x ** y")
+    assert_eq(motd::strip_markdown("# Tytul\n\n- punkt `kod`\n* drugi **b**\n---\n| a | b |\n```\nhidden\n```\nkoniec"),
+              "Tytul\n\n• punkt kod\n• drugi b\nkoniec")
+    assert_eq(motd::assemble("Wariant: %VARIANT%~%TIP%", "Pro", "**Porada**"), "Wariant: Pro\nPorada")
+    assert_eq(motd::strip_markdown("a\n\n\n\n\nb"), "a\n\nb")
+    write("motd OK")
+end
